@@ -5,16 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#090d16" />
   <title>MK Truck</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <style>
     :root{--bg:#0b1120;--surface:#131c31;--surface-2:#1c2844;--glass:rgba(19,28,49,0.94);--hud-bg:rgba(11,17,32,0.94);--text:#f1f5f9;--muted:#94a3b8;--accent:#38bdf8;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444;--border:#263554;}
     body.light-mode{--bg:#f1f5f9;--surface:#ffffff;--surface-2:#e2e8f0;--glass:rgba(255,255,255,0.95);--hud-bg:rgba(255,255,255,0.95);--text:#0f172a;--muted:#475569;--accent:#0284c7;--border:#cbd5e1;}
     *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
     body{background:var(--bg);color:var(--text);height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
 
-    /* CAPA AUTOMÁTICA 3 SEGUNDOS */
-    #splash-screen{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 28%,#172a4a 0%,#070b14 75%);color:#f8fafc;padding:24px;text-align:center;transition:opacity .5s ease,visibility .5s ease;}
-    #splash-screen.hidden{opacity:0;visibility:hidden;pointer-events:none;}
+    /* CAPA COM FECHAMENTO GARANTIDO POR CSS PURO (3.2s) + JS (3.0s) */
+    @keyframes autoHideSplash{
+      0%,85%{opacity:1;visibility:visible;pointer-events:auto;}
+      100%{opacity:0;visibility:hidden;pointer-events:none;z-index:-1;}
+    }
+    #splash-screen{
+      position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:radial-gradient(circle at 50% 28%,#172a4a 0%,#070b14 75%);color:#f8fafc;padding:24px;text-align:center;
+      animation:autoHideSplash 3.3s ease forwards;
+    }
+    #splash-screen.hidden{opacity:0!important;visibility:hidden!important;pointer-events:none!important;display:none!important;}
     .splash-badge{background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.45);color:#38bdf8;padding:4px 12px;border-radius:99px;font-size:.72rem;font-weight:700;letter-spacing:1.5px;margin-bottom:16px;}
     .truck-art{width:100%;max-width:290px;margin-bottom:12px;filter:drop-shadow(0 12px 24px rgba(0,0,0,.65));}
     .road-anim{width:230px;height:4px;background:#1e293b;border-radius:99px;overflow:hidden;margin-bottom:20px;position:relative;}
@@ -24,7 +31,7 @@
     .splash-title span{color:#38bdf8;}
     .splash-sub{color:#94a3b8;font-size:.86rem;margin-top:8px;max-width:280px;}
     .splash-progress-wrap{width:220px;height:6px;background:rgba(255,255,255,.12);border-radius:99px;margin-top:26px;overflow:hidden;}
-    .splash-progress-bar{height:100%;width:0%;background:#38bdf8;border-radius:99px;animation:loadSplash 3s linear forwards;}
+    .splash-progress-bar{height:100%;width:0%;background:#38bdf8;border-radius:99px;animation:loadSplash 2.8s linear forwards;}
     @keyframes loadSplash{to{width:100%;}}
 
     #toast-msg{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:3000;background:#0f172a;color:#f8fafc;border:1px solid var(--accent);padding:9px 14px;border-radius:10px;font-size:.78rem;font-weight:600;max-width:90%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;}
@@ -133,8 +140,7 @@
 </head>
 <body>
 
-<!-- CAPA AUTOMÁTICA (3 SEGUNDOS, SEM DEPENDER DE INTERNET) -->
-<div id="splash-screen">
+<div id="splash-screen" onclick="closeSplash()">
   <div class="splash-badge">NAVEGAÇÃO PARA PESADOS</div>
   <svg class="truck-art" viewBox="0 0 360 155" fill="none" xmlns="http://www.w3.org/2000/svg">
     <polygon points="318,95 360,78 360,122 318,108" fill="url(#beam)" opacity="0.7"/>
@@ -157,16 +163,12 @@
   <div class="splash-progress-wrap"><div class="splash-progress-bar"></div></div>
 </div>
 
-<!-- TEMPORIZADOR INDEPENDENTE PARA FECHAR A CAPA EM 3 SEGUNDOS SEMPRE -->
 <script>
   function closeSplash(){
     var s = document.getElementById('splash-screen');
-    if(s){
-      s.classList.add('hidden');
-      setTimeout(function(){ s.style.display='none'; }, 550);
-    }
+    if(s){ s.classList.add('hidden'); }
     if(typeof map !== 'undefined' && map && map.resize){
-      try{ setTimeout(function(){ map.resize(); }, 200); }catch(e){}
+      try{ setTimeout(function(){ map.resize(); }, 150); }catch(e){}
     }
   }
   setTimeout(closeSplash, 3000);
@@ -183,7 +185,6 @@
 </header>
 
 <main>
-  <!-- MAPA -->
   <section id="view-map" class="tab-view active">
     <div id="map"></div>
     <div class="map-top-bar">
@@ -228,7 +229,6 @@
     </div>
   </section>
 
-  <!-- TACÓGRAFO -->
   <section id="view-tacho" class="tab-view">
     <div class="container">
       <div class="card">
@@ -246,4 +246,5 @@
       <div class="card">
         <h2><span>🅿️ Parques e Combustível na Rota</span><button class="chip-btn" onclick="renderPoiList()">Atualizar</button></h2>
         <div class="field" style="margin-bottom:8px;">
-          <label>Filtrar por Cart
+          <label>Filtrar por Cartão Frota</label>
+          <sel
