@@ -20,47 +20,46 @@ function showToast(msg){
 }
 function resizeActiveMap(){ try{ if(lMap) setTimeout(()=>lMap.invalidateSize(), 150); }catch(e){} }
 
+// ---------- Atualizacao OTA propria (GitHub Pages -> localStorage) ----------
+const OTA_BASES = ['https://maikonmkn07.github.io/Mk-Truck/', 'https://maikonmkn07.github.io/mk-truck/'];
+function currentBuild(){
+  let cached = 0;
+  try{ cached = (JSON.parse(localStorage.getItem('mk_ota_bundle') || 'null') || {}).built || 0; }catch(e){}
+  return Math.max(window.MK_BUILD || 0, window.__MK_OTA || 0, cached);
+}
 async function initAutoUpdater(manual=false){
   try{
-    const updater = window.Capacitor?.Plugins?.CapacitorUpdater;
-    if(!updater){
-      if(manual) showToast('Atualizador só funciona dentro do APK instalado.');
-      return;
-    }
-    try{ await updater.notifyAppReady(); }catch(e){}
     if(manual) showToast('A procurar atualizações...');
-    const urls = [
-      'https://maikonmkn07.github.io/Mk-Truck/version.json?t=' + Date.now(),
-      'https://maikonmkn07.github.io/mk-truck/version.json?t=' + Date.now()
-    ];
-    let remote = null;
-    for(const u of urls){
+    let remote = null, base = null;
+    for(const u of OTA_BASES){
       try{
-        const r = await fetch(u);
-        if(r.ok){ remote = await r.json(); break; }
+        const r = await fetch(u + 'version.json?t=' + Date.now(), { cache:'no-store' });
+        if(r.ok){ remote = await r.json(); base = u; break; }
       }catch(e){}
     }
-    if(!remote || !remote.version){
-      if(manual) showToast('⚠️ Servidor OTA não encontrado. Confira se "Publicar Atualizacao OTA" está verde no GitHub.');
+    if(!remote || !remote.built){
+      if(manual) showToast('⚠️ Servidor de atualizações não encontrado. Confirme internet e se "Publicar Atualizacao OTA" está verde no GitHub.');
       return;
     }
-    const cur = await updater.current();
-    const currentVer = cur?.bundle?.version || '0.0.0';
-    const lastApplied = localStorage.getItem('mk_ota_ver') || '0.0.0';
-    if(remote.version !== currentVer && remote.version !== lastApplied){
-      showToast('⬇️ Nova atualização v' + remote.version + '! A instalar...');
-      const bundle = await updater.download({ url: remote.url, version: remote.version });
-      localStorage.setItem('mk_ota_ver', remote.version);
-      showToast('✅ Atualizado para v' + remote.version + '! A aplicar...');
-      setTimeout(async()=>{
-        try{ await updater.set(bundle); }
-        catch(e){ showToast('Erro ao aplicar: ' + (e?.message||e)); }
-      }, 900);
-    }else if(manual){
-      showToast('✅ Já está na versão mais recente (v' + remote.version + ').');
+    if(remote.built <= currentBuild()){
+      if(manual) showToast('✅ Já está na versão mais recente (v' + remote.version + ').');
+      return;
+    }
+    showToast('⬇️ Nova atualização v' + remote.version + '! A descarregar...');
+    const r = await fetch(base + 'bundle.json?t=' + Date.now(), { cache:'no-store' });
+    if(!r.ok) throw new Error('bundle HTTP ' + r.status);
+    const b = await r.json();
+    if(!b || !b.html || b.html.indexOf('MK Truck') === -1 || !(b.built > 0)) throw new Error('pacote inválido');
+    localStorage.setItem('mk_ota_bundle', JSON.stringify(b));
+    localStorage.setItem('mk_ota_tries', '0');
+    if(isNavigating){
+      showToast('✅ Atualização v' + remote.version + ' pronta. Aplica-se quando reabrir a app.');
+    }else{
+      showToast('✅ Atualizado para v' + remote.version + '! A reiniciar...');
+      setTimeout(()=>location.reload(), 1200);
     }
   }catch(e){
-    if(manual) showToast('⚠️ Erro OTA: ' + (e?.message || e));
+    if(manual) showToast('⚠️ Erro na atualização: ' + (e?.message || e));
   }
 }
 
@@ -94,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try{ loadSettings(); }catch(e){}
   try{ loadProfile(); }catch(e){}
   try{ renderPoiList(); }catch(e){}
-  try{ window.Capacitor?.Plugins?.CapacitorUpdater?.notifyAppReady(); }catch(e){}
+  try{ localStorage.removeItem('mk_ota_tries'); }catch(e){}
   setInterval(tickTacho, 1000);
   setTimeout(()=>initAutoUpdater(false), 3500);
   initMap2D();

@@ -5,6 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#090d16" />
   <title>MK Truck</title>
+  <script>
+    /* Carimbo da compilacao do APK (substituido pelo workflow). Usado para nao aplicar OTA mais antigo que o APK. */
+    var MK_BUILD = 0;
+    /* OTA proprio: se existir uma versao mais recente guardada no telemovel, usa-a em vez da embutida no APK. */
+    (function(){
+      try{
+        if(window.__MK_OTA) return;
+        var raw = localStorage.getItem('mk_ota_bundle'); if(!raw) return;
+        var tries = parseInt(localStorage.getItem('mk_ota_tries') || '0', 10);
+        if(tries >= 3){ localStorage.removeItem('mk_ota_bundle'); localStorage.removeItem('mk_ota_tries'); return; } /* OTA avariado: volta ao APK */
+        var b = JSON.parse(raw);
+        if(!b || !b.html || !(b.built > MK_BUILD)) return;
+        localStorage.setItem('mk_ota_tries', String(tries + 1));
+        window.__MK_OTA = b.built;
+        document.open(); document.write(b.html); document.close();
+      }catch(e){}
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -299,7 +317,7 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<script>if(!window.__MK_OTA){document.write('<script src="app.js"><\/script>');}</script>
 <script>
   if (typeof openSettings !== 'function') {
     var t = document.getElementById('toast-msg');
