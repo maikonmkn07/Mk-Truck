@@ -1,0 +1,46 @@
+name: Publicar Atualizacao OTA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'www/**'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy-ota:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Empacotar atualizacao OTA
+        env:
+          RUN_NUM: ${{ github.run_number }}
+          BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          mkdir -p ota-site
+          (cd www && zip -r ../ota-site/bundle.zip .)
+          node -e 'require("fs").writeFileSync("ota-site/version.json", JSON.stringify({ version: "1.0." + process.env.RUN_NUM, url: process.env.BASE_URL + "/bundle.zip" }))'
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ota-site
+
+      - name: Publicar no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
