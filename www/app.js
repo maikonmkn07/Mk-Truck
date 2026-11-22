@@ -63,7 +63,7 @@ async function initMap2D(){
     const pos = await getNativeLocation(true);
     if(pos){
       userCurrentCoords = pos; customOriginCoords = pos;
-      document.getElementById('origin-input').value = '📍 Minha Localização';
+      document.getElementById('origin-input').value = '📍 A obter rua...';
       updateNavMarker(pos, 0);
       lMap.setView([pos[1], pos[0]], 16);
       reverseFillOrigin(pos);
@@ -155,16 +155,46 @@ function applySettingsUI(){
 
 async function reverseGeocodeLabel(coords){
   try{
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords[1]}&lon=${coords[0]}`);
-    const d = await r.json();
-    const street = d.address?.road || d.address?.pedestrian || '';
-    const local = d.address?.suburb || d.address?.village || d.address?.hamlet || d.address?.town || d.address?.city || '';
-    return [street, local].filter(Boolean).join(', ');
-  }catch(e){ return ''; }
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords[1]}&lon=${coords[0]}&zoom=18&addressdetails=1&accept-language=pt`);
+    if(r.ok){
+      const d = await r.json();
+      const a = d.address || {};
+      const street = a.road || a.pedestrian || a.residential || a.path || a.footway || a.cycleway || '';
+      const num = a.house_number ? ` ${a.house_number}` : '';
+      const local = a.neighbourhood || a.quarter || a.suburb || a.hamlet || a.village || a.town || a.city || '';
+      const full = [street ? (street + num) : '', local].filter(Boolean).join(', ');
+      if(full) return full;
+      if(d.display_name) return d.display_name.split(',').slice(0,2).map(s=>s.trim()).join(', ');
+    }
+  }catch(e){}
+  try{
+    const r2 = await fetch(`https://photon.komoot.io/reverse?lat=${coords[1]}&lon=${coords[0]}`);
+    if(r2.ok){
+      const d2 = await r2.json();
+      const p = d2.features?.[0]?.properties;
+      if(p){
+        const street = p.street || p.name || '';
+        const num = p.housenumber ? ` ${p.housenumber}` : '';
+        const local = p.district || p.locality || p.city || '';
+        const full = [street ? (street + num) : '', local].filter(Boolean).join(', ');
+        if(full) return full;
+      }
+    }
+  }catch(e){}
+  try{
+    const r3 = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords[1]}&longitude=${coords[0]}&localityLanguage=pt`);
+    if(r3.ok){
+      const d3 = await r3.json();
+      const full = [d3.locality, d3.city].filter(Boolean).join(', ');
+      if(full) return full;
+    }
+  }catch(e){}
+  return '';
 }
+
 async function reverseFillOrigin(coords){
   const place = await reverseGeocodeLabel(coords);
-  if(place) document.getElementById('origin-input').value = `📍 ${place}`;
+  document.getElementById('origin-input').value = place ? `📍 ${place}` : '📍 Minha Localização';
 }
 
 async function fillSavedAddrWithGps(type){
@@ -270,10 +300,11 @@ async function useMyLocationAsOrigin(){
   userCurrentCoords = coords; customOriginCoords = coords;
   updateNavMarker(coords, 0);
   if(lMap) lMap.setView([coords[1], coords[0]], 16);
-  document.getElementById('origin-input').value = `📍 ${coords[1].toFixed(4)}, ${coords[0].toFixed(4)}`;
+  const inp = document.getElementById('origin-input');
+  inp.value = '📍 A obter nome da rua...';
   const place = await reverseGeocodeLabel(coords);
-  if(place) document.getElementById('origin-input').value = `📍 ${place}`;
-  showToast('📍 Localização atualizada!');
+  inp.value = place ? `📍 ${place}` : `📍 ${coords[1].toFixed(4)}, ${coords[0].toFixed(4)}`;
+  showToast(place ? `📍 ${place}` : '📍 Localização atualizada!');
   speak('Localização atual definida como origem.','route');
 }
 
