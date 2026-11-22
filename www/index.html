@@ -33,6 +33,8 @@
 </div>
 
 <script>
+  window._jsErr = '';
+  window.onerror = function(msg, url, line){ window._jsErr = msg + ' (L' + line + ')'; };
   function closeSplash(){
     var s = document.getElementById('splash-screen');
     if(s){ s.classList.add('hidden'); }
@@ -54,7 +56,16 @@
 <main>
   <section id="view-map" class="tab-view active">
     <div id="map"></div>
-    <div class="map-top-bar">
+
+    <div class="nav-banner" id="nav-banner">
+      <div class="nav-banner-icon">⬆️</div>
+      <div class="nav-banner-text">
+        <strong id="nav-step-title">Siga pela rota azul</strong>
+        <small id="nav-step-sub">Navegação GPS ativa • Acompanhe o percurso</small>
+      </div>
+    </div>
+
+    <div class="map-top-bar" id="map-top-bar">
       <div class="input-row">
         <button class="icon-btn" title="Usar a minha localização atual" onclick="useMyLocationAsOrigin()">📍</button>
         <input type="text" id="origin-input" class="input-box" placeholder="Origem (ou toque em 📍)" value="" oninput="customOriginCoords=null" />
@@ -206,14 +217,14 @@
         <label>🏠 Endereço de Casa</label>
         <div class="input-row">
           <input type="text" id="set-home-addr" placeholder="Ex: Rua das Flores 12, Barcelos" oninput="saveSettings()" />
-          <button class="icon-btn" title="Usar local atual para Casa" onclick="fillSavedAddrWithGps('home')">📍</button>
+          <button class="icon-btn" onclick="fillSavedAddrWithGps('home')">📍</button>
         </div>
       </div>
       <div class="field">
         <label>🏢 Endereço do Trabalho</label>
         <div class="input-row">
           <input type="text" id="set-work-addr" placeholder="Ex: Parque Industrial, Vigo" oninput="saveSettings()" />
-          <button class="icon-btn" title="Usar local atual para Trabalho" onclick="fillSavedAddrWithGps('work')">📍</button>
+          <button class="icon-btn" onclick="fillSavedAddrWithGps('work')">📍</button>
         </div>
       </div>
     </div>
@@ -292,7 +303,7 @@
   if (typeof openSettings !== 'function') {
     var t = document.getElementById('toast-msg');
     if (t) {
-      t.innerText = '⚠️ Erro ao carregar www/app.js! Confira se app.js está completo dentro da pasta www/.';
+      t.innerText = window._jsErr ? ('⚠️ Erro no app.js: ' + window._jsErr) : '⚠️ Ficheiro www/app.js não encontrado dentro da pasta www/.';
       t.style.display = 'block';
     }
   }
