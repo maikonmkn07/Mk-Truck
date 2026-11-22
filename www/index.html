@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#090d16" />
+  <title>MK Truck — Navegação HGV & Copiloto</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #0b1120;
+      --surface: #131c31;
+      --surface-2: #1c2844;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --border: #263554;
+    }
+    body.oled-mode {
+      --bg: #000000;
+      --surface: #050505;
+      --surface-2: #0f0f0f;
+      --border: #1e293b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Header */
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; z-index: 1000;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1rem; letter-spacing: 0.3px; }
+    .brand span.badge { font-size: 0.65rem; background: var(--accent); color: #000; padding: 2px 6px; border-radius: 6px; font-weight: 800; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .chip-btn {
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 10px; border-radius: 8px; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 4px;
+    }
+    .chip-btn.active { border-color: var(--accent); color: var(--accent); }
+
+    /* Main Layout */
+    main { flex: 1; position: relative; overflow: hidden; }
+    .tab-view { display: none; height: 100%; width: 100%; overflow-y: auto; }
+    .tab-view.active { display: block; }
+    #view-map { overflow: hidden; position: relative; }
+    #map { height: 100%; width: 100%; background: #0f172a; }
+
+    /* Floating Map Search & HUD */
+    .map-top-bar {
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 800;
+      background: rgba(19, 28, 49, 0.94); backdrop-filter: blur(8px);
+      border: 1px solid var(--border); border-radius: 12px; padding: 10px;
+      display: flex; flex-direction: column; gap: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .route-inputs { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+    .input-box {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      padding: 8px 10px; border-radius: 8px; font-size: 0.82rem; width: 100%;
+    }
+    .btn-primary {
+      background: var(--accent); color: #04121e; border: none; padding: 8px 14px;
+      border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.82rem;
+    }
+    .presets-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .preset-pill {
+      white-space: nowrap; font-size: 0.72rem; background: var(--surface-2); color: var(--muted);
+      border: 1px solid var(--border); padding: 4px 8px; border-radius: 99px; cursor: pointer;
+    }
+    .preset-pill:hover { color: var(--text); border-color: var(--accent); }
+
+    /* Map Bottom Telemetry HUD */
+    .map-hud {
+      position: absolute; bottom: 12px; left: 10px; right: 10px; z-index: 800;
+      display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+    }
+    .hud-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
+    .speed-box {
+      pointer-events: auto; background: rgba(11, 17, 32, 0.94); border: 2px solid var(--border);
+      border-radius: 14px; padding: 8px 12px; display: flex; align-items: center; gap: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    }
+    .speed-limit-sign {
+      width: 44px; height: 44px; border-radius: 50%; background: #fff; color: #000;
+      border: 4px solid var(--danger); display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 1rem;
+    }
+    .current-speed { font-size: 1.5rem; font-weight: 800; line-height: 1; }
+    .current-speed small { font-size: 0.65rem; color: var(--muted); display: block; font-weight: 500; }
+
+    .tacho-mini {
+      pointer-events: auto; background: rgba(11, 17, 32, 0.94); border: 1px solid var(--border);
+      border-radius: 12px; padding: 8px 12px; display: flex; gap: 12px; align-items: center; font-size: 0.78rem;
+    }
+    .route-summary-card {
+      pointer-events: auto; background: rgba(19, 28, 49, 0.95); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px; display: none; justify-content: space-between; align-items: center; gap: 10px;
+    }
+    .route-summary-card.visible { display: flex; }
+
+    .fab-stack {
+      position: absolute; right: 12px; top: 132px; z-index: 800; display: flex; flex-direction: column; gap: 8px;
+    }
+    .fab {
+      width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border);
+      background: rgba(19, 28, 49, 0.95); color: var(--text); font-size: 1.15rem;
+      display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .fab.alert-fab { background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #fca5a5; }
+
+    /* Cards & Forms */
+    .container { padding: 14px; max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .card h2 { font-size: 1rem; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .field label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
+    .field input, .field select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      padding: 9px 10px; border-radius: 8px; font-size: 0.85rem;
+    }
+
+    /* Tachograph Gauges */
+    .tacho-status-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+    .mode-btn {
+      padding: 10px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg);
+      color: var(--muted); font-size: 0.75rem; font-weight: 600; cursor: pointer; text-align: center;
+    }
+    .mode-btn.active-drive { background: rgba(34, 197, 94, 0.18); border-color: var(--success); color: var(--success); }
+    .mode-btn.active-rest { background: rgba(56, 189, 248, 0.18); border-color: var(--accent); color: var(--accent); }
+    .mode-btn.active-work { background: rgba(245, 158, 11, 0.18); border-color: var(--warn); color: var(--warn); }
+
+    .progress-wrap { margin-bottom: 10px; }
+    .progress-head { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
+    .progress-bar { height: 10px; background: var(--bg); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+    .progress-fill { height: 100%; background: var(--success); transition: width 0.3s; }
+
+    /* Chat AI */
+    .chat-box { display: flex; flex-direction: column; height: calc(100dvh - 180px); }
+    .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px; }
+    .msg { max-width: 85%; padding: 10px 12px; border-radius: 12px; font-size: 0.85rem; line-height: 1.4; }
+    .msg.bot { background: var(--surface-2); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; }
+    .msg.user { background: var(--accent); color: #04121e; font-weight: 500; align-self: flex-end; border-bottom-right-radius: 4px; }
+    .chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
+
+    /* Bottom Navigation */
+    nav {
+      background: var(--surface); border-top: 1px solid var(--border);
+      display: grid; grid-template-columns: repeat(4, 1fr); z-index: 1000;
+    }
+    .nav-item {
+      padding: 10px 4px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      font-size: 0.7rem; color: var(--muted); cursor: pointer; border: none; background: none;
+    }
+    .nav-item.active { color: var(--accent); font-weight: 700; }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2000;
+      display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 400px; padding: 16px; }
+    .alert-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+    .alert-opt {
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      padding: 12px 8px; border-radius: 10px; cursor: pointer; font-size: 0.8rem; text-align: center;
+    }
+    .alert-opt:hover { border-color: var(--accent); }
+    .poi-item {
+      display: flex; justify-content: space-between; align-items: center; padding: 10px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; font-size: 0.8rem;
+    }
+    .tag { padding: 2px 6px; border-radius: 6px; font-size: 0.68rem; font-weight: 700; }
+    .tag-ok { background: rgba(34,197,94,0.18); color: var(--success); }
+    .tag-warn { background: rgba(245,158,11,0.18); color: var(--warn); }
+    .tag-bad { background: rgba(239,68,68,0.18); color: var(--danger); }
+
+    /* Dark map filter for Leaflet OSM */
+    .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(90%); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span>🚛 MK Truck</span>
+    <span class="badge">PRO AI</span>
+  </div>
+  <div class="header-actions">
+    <button class="chip-btn" id="btn-voice" onclick="toggleVoice()">🔊 Voz: ON</button>
+    <button class="chip-btn" id="btn-oled" onclick="toggleOled()">🌙 Eco-OLED</button>
+  </div>
+</header>
+
+<main>
+  <!-- VIEW 1: MAPA E ROTA -->
+  <section id="view-map" class="tab-view active">
+    <div id="map"></div>
+
+    <div class="map-top-bar">
+      <div class="route-inputs">
+        <input type="text" id="origin-input" class="input-box" placeholder="Origem (ex: Lisboa)" value="Lisboa, Portugal" />
+        <input type="text" id="dest-input" class="input-box" placeholder="Destino (ex: Madrid)" value="Madrid, Espanha" />
+        <button class="btn-primary" onclick="calculateTruckRoute()">Rota HGV</button>
+      </div>
+      <div class="presets-row">
+        <button class="preset-pill" onclick="setPreset('Lisboa, Portugal', 'Madrid, Espanha')">🇵🇹 Lisboa → 🇪🇸 Madrid</button>
+        <button class="preset-pill" onclick="setPreset('Porto, Portugal', 'Paris, França')">🇵🇹 Porto → 🇫🇷 Paris</button>
+        <button class="preset-pill" onclick="setPreset('London, UK', 'Rotterdam, Netherlands')">🇬🇧 Londres → 🇳🇱 Roterdão</button>
+        <button class="preset-pill" onclick="findReachableParking()">🅿️ Parques antes da pausa</button>
+      </div>
+    </div>
+
+    <div class="fab-stack">
+      <button class="fab alert-fab" title="Reportar Alerta Comunitário" onclick="openReportModal()">⚠️</button>
+      <button class="fab" title="Simular Condução na Rota" onclick="toggleSimulation()" id="btn-sim">▶️</button>
+      <button class="fab" title="Centrar GPS" onclick="centerOnTruck()">🎯</button>
+    </div>
+
+    <div class="map-hud">
+      <div class="route-summary-card" id="route-summary">
+        <div>
+          <div style="font-weight:700; font-size:0.88rem;" id="summary-title">Rota HGV Calculada</div>
+          <div style="font-size:0.74rem; color:var(--muted);" id="summary-details">-- km • --h --m • Custo est.: €--</div>
+        </div>
+        <div style="text-align:right;">
+          <span class="tag tag-ok" id="summary-adr-badge">Perfil OK</span>
+        </div>
+      </div>
+
+      <div class="hud-row">
+        <div class="speed-box">
+          <div class="speed-limit-sign" id="hud-limit">80</div>
+          <div class="current-speed">
+            <span id="hud-speed">0</span>
+            <small>km/h (HGV)</small>
+          </div>
+        </div>
+        <div class="tacho-mini" onclick="switchTab('tacho')" style="cursor:pointer;">
+          <div>
+            <div style="color:var(--muted); font-size:0.68rem;">CONDUÇÃO CONTÍNUA</div>
+            <div style="font-weight:800; color:var(--success);" id="mini-drive-left">04h 30m</div>
+          </div>
+          <div style="border-left:1px solid var(--border); padding-left:10px;">
+            <div style="color:var(--muted); font-size:0.68rem;">DIÁRIA</div>
+            <div style="font-weight:800;" id="mini-daily-left">09h 00m</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 2: TACÓGRAFO E PARAGENS -->
+  <section id="view-tacho" class="tab-view">
+    <div class="container">
+      <div class="card">
+        <h2>
+          <span>⏱️ Tacógrafo Inteligente (Reg. UE 561/2006)</span>
+          <button class="chip-btn" onclick="cycleSimSpeed()" id="btn-sim-speed">Velocidade: 1x</button>
+        </h2>
+        <div class="tacho-status-bar">
+          <button class="mode-btn active-rest" id="mode-rest" onclick="setTachoMode('rest')">🛏️ Pausa / Descanso</button>
+          <button class="mode-btn" id="mode-drive" onclick="setTachoMode('drive')">🛞 A Conduzir</button>
+          <button class="mode-btn" id="mode-work" onclick="setTachoMode('work')">📦 Outros Trabalhos</button>
+          <button class="mode-btn" onclick="resetTacho()">🔄 Reiniciar Dia</button>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-head"><span>Condução Contínua (máx. 4h30)</span><strong id="lbl-cont">4h 30m restantes</strong></div>
+          <div class="progress-bar"><div class="progress-fill" id="bar-cont" style="width:100%"></div></div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-head"><span>Condução Diária (9h padrão / 10h 2x sem.)</span><strong id="lbl-daily">9h 00m restantes</strong></div>
+          <div class="progress-bar"><div class="progress-fill" id="bar-daily" style="width:100%"></div></div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-head"><span>Progresso da Pausa Obrigatória (45 min)</span><strong id="lbl-break">0 / 45 min</strong></div>
+          <div class="progress-bar"><div class="progress-fill" id="bar-break" style="width:0%; background:var(--accent)"></div></div>
+        </div>
+
+        <div style="font-size:0.76rem; color:var(--muted); margin-top:6px;">
+          💡 <strong>Dica MK Truck:</strong> Use "Velocidade: 1x/60x" para simular os alertas de pausa e cruzar o tempo restante com parques seguros na rota.
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span>🅿️ Parques e Combustível na Rota</span><button class="chip-btn" onclick="renderPoiList()">Atualizar</button></h2>
+        <div class="field" style="margin-bottom:8px;">
+          <label>Filtrar por Cartão Frota</label>
+          <select id="fuel-card-filter" onchange="renderPoiList()">
+            <option value="all">Todos os Postos & Parques</option>
+            <option value="DKV">Aceita DKV</option>
+            <option value="UTA">Aceita UTA</option>
+            <option value="Repsol">Aceita Repsol Solred</option>
+          </select>
+        </div>
+        <div id="poi-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 3: PERFIL DO CAMIÃO & ADR -->
+  <section id="view-profile" class="tab-view">
+    <div class="container">
+      <div class="card">
+        <h2>🚛 Dimensões e Pesos do Veículo</h2>
+        <div class="grid-2">
+          <div class="field">
+            <label>Tipo de Veículo</label>
+            <select id="veh-type" onchange="saveProfile()">
+              <option value="hgv">Trator + Semirreboque (TIR)</option>
+              <option value="rigid">Camião Rígido</option>
+              <option value="tanker">Cisterna</option>
+              <option value="bus">Autocarro</option>
+              <option value="van">Carrinha Comercial</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Classe Ambiental & Eixos</label>
+            <select id="veh-euro" onchange="saveProfile()">
+              <option value="euro6_5">Euro 6 • 5 Eixos</option>
+              <option value="euro6_4">Euro 6 • 4 Eixos</option>
+              <option value="euro5_5">Euro 5 • 5 Eixos</option>
+              <option value="ev_5">Elétrico (ZEV) • 5 Eixos</option>
+            </select>
+          </div>
+          <div class="field"><label>Altura (metros)</label><input type="number" step="0.1" id="veh-height" value="4.0" onchange="saveProfile()"></div>
+          <div class="field"><label>Largura (metros)</label><input type="number" step="0.05" id="veh-width" value="2.55" onchange="saveProfile()"></div>
+          <div class="field"><label>Comprimento (metros)</label><input type="number" step="0.5" id="veh-length" value="16.5" onchange="saveProfile()"></div>
+          <div class="field"><label>Peso Bruto Total (ton)</label><input type="number" step="1" id="veh-weight" value="40" onchange="saveProfile()"></div>
+          <div class="field"><label>Peso por Eixo (ton)</label><input type="number" step="0.5" id="veh-axle" value="11.5" onchange="saveProfile()"></div>
+          <div class="field"><label>Consumo Médio (L/100km)</label><input type="number" step="1" id="veh-fuel" value="31" onchange="saveProfile()"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>☢️ Mercadorias Perigosas (ADR) & Túneis</h2>
+        <div class="grid-2">
+          <div class="field">
+            <label>Classe ADR</label>
+            <select id="veh-adr" onchange="saveProfile()">
+              <option value="none">Sem carga ADR</option>
+              <option value="3">Classe 3 — Líquidos Inflamáveis</option>
+              <option value="1">Classe 1 — Explosivos</option>
+              <option value="2">Classe 2 — Gases</option>
+              <option value="8">Classe 8 — Corrosivos</option>
+              <option value="water">Poluente Marinho / Água</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Código de Restrição de Túnel</label>
+            <select id="veh-tunnel" onchange="saveProfile()">
+              <option value="none">Nenhum</option>
+              <option value="B">Categoria B (Mais restritivo)</option>
+              <option value="C">Categoria C</option>
+              <option value="D">Categoria D</option>
+              <option value="E">Categoria E (Apenas túneis abertos)</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size:0.76rem; color:var(--muted); margin-top:10px;">
+          As rotas do MK Truck evitam automaticamente pontes abaixo de <strong id="lbl-h">4.0m</strong>, vias abaixo de <strong id="lbl-w">40t</strong> e túneis incompatíveis com o código ADR selecionado.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 4: COPILOTO IA -->
+  <section id="view-ai" class="tab-view">
+    <div class="container">
+      <div class="card chat-box">
+        <h2>🤖 MK Copiloto IA (Tacógrafo, Multas & ADR)</h2>
+        <div class="presets-row" style="margin-bottom:8px;">
+          <button class="preset-pill" onclick="askPreset('Posso conduzir 10 horas hoje?')">Posso conduzir 10h?</button>
+          <button class="preset-pill" onclick="askPreset('Como dividir a pausa de 45 minutos?')">Dividir pausa 45m</button>
+          <button class="preset-pill" onclick="askPreset('Proibições de fim de semana Alemanha e França')">Proibições Fim de Semana</button>
+          <button class="preset-pill" onclick="askPreset('Regra túnel ADR categoria D')">Túnel ADR D</button>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="msg bot">
+            Olá, motorista! Sou o <strong>MK Copiloto</strong> da app <strong>MK Truck</strong>. Sei tudo sobre o Regulamento 561/2006, pausas divididas, dupla tripulação, códigos ADR de túneis e restrições europeias. Como posso ajudar na estrada?
+          </div>
+        </div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" class="input-box" placeholder="Escreva a sua dúvida..." onkeypress="if(event.key==='Enter') sendChat()" />
+          <button class="btn-primary" onclick="sendChat()">Enviar</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="nav-item active" id="nav-map" onclick="switchTab('map')">🗺️<span>Mapa GPS</span></button>
+  <button class="nav-item" id="nav-tacho" onclick="switchTab('tacho')">⏱️<span>Tacógrafo</span></button>
+  <button class="nav-item" id="nav-profile" onclick="switchTab('profile')">🚛<span>Camião/ADR</span></button>
+  <button class="nav-item" id="nav-ai" onclick="switchTab('ai')">🤖<span>Copiloto IA</span></button>
+</nav>
+
+<!-- MODAL ALERTA COMUNITÁRIO -->
+<div class="modal-backdrop" id="report-modal">
+  <div class="modal">
+    <h3 style="margin-bottom:4px;">⚠️ Reportar Alerta na Via</h3>
+    <p style="font-size:0.78rem; color:var(--muted);">Ajude outros motoristas do MK Truck em tempo real:</p>
+    <div class="alert-grid">
+      <button class="alert-opt" onclick="addCommunityAlert('🚧 Restrição Temporária / Obras', '#f59e0b')">🚧 Restrição HGV</button>
+      <button class="alert-opt" onclick="addCommunityAlert('⚖️ Balança / Fiscalização Ativa', '#ef4444')">⚖️ Balança / Polícia</button>
+      <button class="alert-opt" onclick="addCommunityAlert('🅿️ Parque Lotado (0 vagas)', '#ef4444')">🅿️ Parque Lotado</button>
+      <button class="alert-opt" onclick="addCommunityAlert('🌬️ Vento Lateral Forte', '#38bdf8')">🌬️ Vento Forte</button>
+    </div>
+    <button class="chip-btn" style="width:100%; justify-content:center;" onclick="closeReportModal()">Cancelar</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  let map, routeLayer, truckMarker;
+  let markersLayer = L.layerGroup();
+  let routeCoords = [];
+  let simInterval = null;
+  let simIndex = 0;
+  let voiceEnabled = true;
+
+  let tacho = {
+    mode: 'rest',
+    contUsed: 0,
+    dailyUsed: 0,
+    breakAcc: 0,
+    speedMult: 1
+  };
+
+  let currentPois = [
+    { name: "Área de Serviço Batalha / A1", km: 118, freeSpots: 14, diesel: 1.62, cards: ["DKV", "UTA", "Repsol"], lat: 39.66, lng: -8.82 },
+    { name: "Truck Park Vilar Formoso (Seguro)", km: 325, freeSpots: 4, diesel: 1.59, cards: ["DKV", "Repsol"], lat: 40.61, lng: -6.83 },
+    { name: "Estación Salamanca HGV", km: 445, freeSpots: 0, diesel: 1.49, cards: ["DKV", "UTA"], lat: 40.96, lng: -5.66 },
+    { name: "Madrid Sur Logistics Parking", km: 615, freeSpots: 22, diesel: 1.51, cards: ["UTA", "Repsol"], lat: 40.31, lng: -3.72 }
+  ];
+
+  window.onload = () => {
+    map = L.map('map', { zoomControl: false }).setView([39.8, -6.2], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+    markersLayer.addTo(map);
+
+    loadProfile();
+    calculateTruckRoute();
+    renderPoiList();
+    setInterval(tickTacho, 1000);
+  };
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('view-' + tab).classList.add('active');
+    document.getElementById('nav-' + tab).classList.add('active');
+    if (tab === 'map' && map) setTimeout(() => map.invalidateSize(), 150);
+  }
+
+  function toggleOled() {
+    document.body.classList.toggle('oled-mode');
+    document.getElementById('btn-oled').classList.toggle('active');
+  }
+
+  function toggleVoice() {
+    voiceEnabled = !voiceEnabled;
+    document.getElementById('btn-voice').innerText = voiceEnabled ? '🔊 Voz: ON' : '🔇 Voz: OFF';
+  }
+
+  function speak(text) {
+    if (!voiceEnabled || !('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'pt-PT';
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
+
+  const knownCities = {
+    "lisboa, portugal": [38.7223, -9.1393],
+    "madrid, espanha": [40.4168, -3.7038],
+    "porto, portugal": [41.1579, -8.6291],
+    "paris, frança": [48.8566, 2.3522],
+    "london, uk": [51.5072, -0.1276],
+    "rotterdam, netherlands": [51.9244, 4.4777]
+  };
+
+  async function geocode(query) {
+    const k = query.trim().toLowerCase();
+    if (knownCities[k]) return knownCities[k];
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (data && data.length > 0) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    } catch (e) {}
+    return [38.7223, -9.1393];
+  }
+
+  function setPreset(orig, dest) {
+    document.getElementById('origin-input').value = orig;
+    document.getElementById('dest-input').value = dest;
+    calculateTruckRoute();
+  }
+
+  async function calculateTruckRoute() {
+    const origTxt = document.getElementById('origin-input').value;
+    const destTxt = document.getElementById('dest-input').value;
+    const p1 = await geocode(origTxt);
+    const p2 = await geocode(destTxt);
+
+    let distanceKm = 0;
+    routeCoords = [];
+
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${p1[1]},${p1[0]};${p2[1]},${p2[0]}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes.length > 0) {
+        const r = data.routes[0];
+        distanceKm = Math.round(r.distance / 1000);
+        routeCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+      }
+    } catch (e) {}
+
+    if (routeCoords.length === 0) {
+      routeCoords = [p1, [(p1[0]+p2[0])/2, (p1[1]+p2[1])/2], p2];
+      distanceKm = Math.round(map.distance(p1, p2) / 1000 * 1.25);
+    }
+
+    if (routeLayer) map.removeLayer(routeLayer);
+    routeLayer = L.polyline(routeCoords, { color: '#38bdf8', weight: 5, opacity: 0.9 }).addTo(map);
+    map.fitBounds(routeLayer.getBounds(), { padding: [70, 90] });
+
+    markersLayer.clearLayers();
+    L.circleMarker(p1, { radius: 7, color: '#22c55e', fillOpacity: 1 }).bindPopup('Origem: ' + origTxt).addTo(markersLayer);
+    L.circleMarker(p2, { radius: 7, color: '#ef4444', fillOpacity: 1 }).bindPopup('Destino: ' + destTxt).addTo(markersLayer);
+
+    const mid1 = routeCoords[Math.floor(routeCoords.length * 0.35)];
+    const mid2 = routeCoords[Math.floor(routeCoords.length * 0.65)];
+    const mid3 = routeCoords[Math.floor(routeCoords.length * 0.80)];
+
+    const h = parseFloat(document.getElementById('veh-height').value);
+    const adr = document.getElementById('veh-adr').value;
+
+    L.marker(mid1, { icon: badgeIcon('🌉 4.2m') })
+      .bindPopup(`<b>Ponte / Viaduto na Aproximação</b><br>Altura livre: 4.20m (Seu veículo: ${h}m)`).addTo(markersLayer);
+    L.marker(mid2, { icon: badgeIcon('📸 80') })
+      .bindPopup('<b>Radar Fixo HGV</b><br>Limite pesados: 80 km/h').addTo(markersLayer);
+    L.marker(mid3, { icon: badgeIcon('🅿️ HGV') })
+      .bindPopup('<b>Parque Seguro de Camiões</b><br>12 vagas livres • €1.56/L (DKV/UTA)').addTo(markersLayer);
+
+    if (truckMarker) map.removeLayer(truckMarker);
+    truckMarker = L.marker(routeCoords[0], { icon: badgeIcon('🚛', '#38bdf8') }).addTo(map);
+    simIndex = 0;
+
+    const driveHours = distanceKm / 72;
+    const breaksNeeded = Math.floor(driveHours / 4.5);
+    const totalHours = driveHours + breaksNeeded * 0.75;
+    const hh = Math.floor(totalHours);
+    const mm = Math.round((totalHours - hh) * 60);
+
+    const cons = parseFloat(document.getElementById('veh-fuel').value) || 31;
+    const fuelCost = (distanceKm / 100) * cons * 1.58;
+    const tollRate = document.getElementById('veh-euro').value.includes('ev') ? 0.06 : 0.19;
+    const tollCost = distanceKm * tollRate;
+    const totalCost = Math.round(fuelCost + tollCost);
+
+    document.getElementById('route-summary').classList.add('visible');
+    document.getElementById('summary-title').innerText = `${origTxt.split(',')[0]} → ${destTxt.split(',')[0]}`;
+    document.getElementById('summary-details').innerText = `${distanceKm} km • ${hh}h ${mm}m (c/ pausas) • Est.: €${totalCost}`;
+    document.getElementById('summary-adr-badge').innerText = adr === 'none' ? 'Perfil HGV OK' : `ADR Cl.${adr} OK`;
+
+    speak(`Rota MK Truck calculada. ${distanceKm} quilómetros. Tempo estimado ${hh} horas e ${mm} minutos.`);
+  }
+
+  function badgeIcon(label, bg = '#1e293b') {
+    return L.divIcon({
+      className: 'custom-div-icon',
+      html: `<div style="background:${bg}; color:#fff; border:1px solid #38bdf8; padding:2px 6px; border-radius:8px; font-size:11px; font-weight:700; white-space:nowrap; box-shadow:0 2px 6px rgba(0,0,0,0.6);">${label}</div>`,
+      iconSize: [50, 22], iconAnchor: [25, 11]
+    });
+  }
+
+  function toggleSimulation() {
+    if (simInterval) {
+      clearInterval(simInterval);
+      simInterval = null;
+      document.getElementById('btn-sim').innerText = '▶️';
+      document.getElementById('hud-speed').innerText = '0';
+      setTachoMode('rest');
+      return;
+    }
+    if (routeCoords.length < 2) return;
+    document.getElementById('btn-sim').innerText = '⏸️';
+    setTachoMode('drive');
+    speak('Navegação MK Truck iniciada. Mantenha a direita.');
+
+    simInterval = setInterval(() => {
+      simIndex = Math.min(simIndex + Math.max(1, Math.floor(routeCoords.length / 80)), routeCoords.length - 1);
+      const pos = routeCoords[simIndex];
+      truckMarker.setLatLng(pos);
+      map.panTo(pos, { animate: true });
+      const spd = 76 + Math.floor(Math.random() * 8);
+      document.getElementById('hud-speed').innerText = spd;
+
+      if (simIndex === Math.floor(routeCoords.length * 0.35)) {
+        speak('Atenção: ponte à frente com altura máxima de 4 metros e 20.');
+      }
+      if (simIndex >= routeCoords.length - 1) {
+        toggleSimulation();
+        speak('Chegou ao destino.');
+      }
+    }, 600);
+  }
+
+  function centerOnTruck() {
+    if (truckMarker) map.setView(truckMarker.getLatLng(), 12);
+  }
+
+  function findReachableParking() {
+    const remHours = (16200 - tacho.contUsed) / 3600;
+    const maxKm = Math.round(remHours * 75);
+    const reachable = currentPois.filter(p => p.km <= maxKm && p.freeSpots > 0);
+    switchTab('tacho');
+    speak(`Tem ${remHours.toFixed(1)} horas restantes. Encontrados ${reachable.length} parques com vagas até ${maxKm} quilómetros.`);
+    alert(`⏱️ Condução restante: ${formatHMS(16200 - tacho.contUsed)} (~${maxKm} km).\n✅ Parques com vagas alcançáveis: ${reachable.length}`);
+  }
+
+  function openReportModal() { document.getElementById('report-modal').classList.add('open'); }
+  function closeReportModal() { document.getElementById('report-modal').classList.remove('open'); }
+
+  function addCommunityAlert(label, color) {
+    const pos = truckMarker ? truckMarker.getLatLng() : map.getCenter();
+    L.marker(pos, { icon: badgeIcon(label.split(' ')[0] + ' Novo', color) })
+      .bindPopup(`<b>${label}</b><br>Reportado agora pela comunidade MK Truck`).addTo(markersLayer);
+    closeReportModal();
+    speak('Alerta registado e partilhado com os motoristas próximos.');
+  }
+
+  function setTachoMode(m) {
+    tacho.mode = m;
+    document.querySelectorAll('.mode-btn').forEach(b => b.className = 'mode-btn');
+    if (m === 'drive') document.getElementById('mode-drive').classList.add('active-drive');
+    if (m === 'rest') document.getElementById('mode-rest').classList.add('active-rest');
+    if (m === 'work') document.getElementById('mode-work').classList.add('active-work');
+  }
+
+  function cycleSimSpeed() {
+    const speeds = [1, 60, 600];
+    const next = speeds[(speeds.indexOf(tacho.speedMult) + 1) % speeds.length];
+    tacho.speedMult = next;
+    document.getElementById('btn-sim-speed').innerText = `Velocidade: ${next}x`;
+  }
+
+  function resetTacho() {
+    tacho.contUsed = 0; tacho.dailyUsed = 0; tacho.breakAcc = 0;
+    updateTachoUI();
+  }
+
+  function tickTacho() {
+    const dt = tacho.speedMult;
+    if (tacho.mode === 'drive') {
+      tacho.contUsed = Math.min(16200, tacho.contUsed + dt);
+      tacho.dailyUsed = Math.min(32400, tacho.dailyUsed + dt);
+      if (tacho.contUsed >= 14400 && tacho.contUsed - dt < 14400) {
+        speak('Atenção: restam apenas 30 minutos de condução contínua.');
+      }
+    } else if (tacho.mode === 'rest') {
+      tacho.breakAcc = Math.min(2700, tacho.breakAcc + dt);
+      if (tacho.breakAcc >= 2700) {
+        tacho.contUsed = 0;
+      }
+    }
+    updateTachoUI();
+  }
+
+  function formatHMS(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    return `${h}h ${m}m`;
+  }
+
+  function updateTachoUI() {
+    const contLeft = 16200 - tacho.contUsed;
+    const dailyLeft = 32400 - tacho.dailyUsed;
+    const contPct = (contLeft / 16200) * 100;
+    const dailyPct = (dailyLeft / 32400) * 100;
+    const breakPct = (tacho.breakAcc / 2700) * 100;
+
+    document.getElementById('mini-drive-left').innerText = formatHMS(contLeft);
+    document.getElementById('mini-daily-left').innerText = formatHMS(dailyLeft);
+    document.getElementById('mini-drive-left').style.color = contPct < 20 ? 'var(--danger)' : 'var(--success)';
+
+    document.getElementById('lbl-cont').innerText = formatHMS(contLeft) + ' restantes';
+    document.getElementById('bar-cont').style.width = contPct + '%';
+    document.getElementById('bar-cont').style.background = contPct < 20 ? 'var(--danger)' : (contPct < 40 ? 'var(--warn)' : 'var(--success)');
+
+    document.getElementById('lbl-daily').innerText = formatHMS(dailyLeft) + ' restantes';
+    document.getElementById('bar-daily').style.width = dailyPct + '%';
+
+    document.getElementById('lbl-break').innerText = `${Math.floor(tacho.breakAcc/60)} / 45 min`;
+    document.getElementById('bar-break').style.width = breakPct + '%';
+  }
+
+  function renderPoiList() {
+    const filter = document.getElementById('fuel-card-filter').value;
+    const remKm = Math.round(((16200 - tacho.contUsed) / 3600) * 75);
+    const list = document.getElementById('poi-list');
+    list.innerHTML = '';
+
+    currentPois
+      .filter(p => filter === 'all' || p.cards.includes(filter))
+      .forEach(p => {
+        const reachable = p.km <= remKm;
+        const badge = p.freeSpots === 0
+          ? `<span class="tag tag-bad">Lotado</span>`
+          : (reachable ? `<span class="tag tag-ok">${p.freeSpots} vagas • Alcançável</span>` : `<span class="tag tag-warn">Excede 4h30</span>`);
+        list.innerHTML += `
+          <div class="poi-item">
+            <div>
+              <strong>${p.name}</strong><br>
+              <span style="color:var(--muted);">Km ${p.km} • Diesel €${p.diesel.toFixed(2)}/L • ${p.cards.join(', ')}</span>
+            </div>
+            <div>${badge}</div>
+          </div>`;
+      });
+  }
+
+  function saveProfile() {
+    const profile = {
+      type: document.getElementById('veh-type').value,
+      euro: document.getElementById('veh-euro').value,
+      height: document.getElementById('veh-height').value,
+      width: document.getElementById('veh-width').value,
+      length: document.getElementById('veh-length').value,
+      weight: document.getElementById('veh-weight').value,
+      axle: document.getElementById('veh-axle').value,
+      fuel: document.getElementById('veh-fuel').value,
+      adr: document.getElementById('veh-adr').value,
+      tunnel: document.getElementById('veh-tunnel').value
+    };
+    localStorage.setItem('mk_truck_profile', JSON.stringify(profile));
+    document.getElementById('lbl-h').innerText = profile.height + 'm';
+    document.getElementById('lbl-w').innerText = profile.weight + 't';
+  }
+
+  function loadProfile() {
+    const saved = localStorage.getItem('mk_truck_profile');
+    if (!saved) return;
+    const p = JSON.parse(saved);
+    if (p.height) document.getElementById('veh-height').value = p.height;
+    if (p.weight) document.getElementById('veh-weight').value = p.weight;
+    if (p.adr) document.getElementById('veh-adr').value = p.adr;
+    document.getElementById('lbl-h').innerText = (p.height || 4.0) + 'm';
+    document.getElementById('lbl-w').innerText = (p.weight || 40) + 't';
+  }
+
+  function askPreset(q) {
+    document.getElementById('chat-input').value = q;
+    sendChat();
+  }
+
+  function sendChat() {
+    const inp = document.getElementById('chat-input');
+    const q = inp.value.trim();
+    if (!q) return;
+    inp.value = '';
+    const box = document.getElementById('chat-messages');
+    box.innerHTML += `<div class="msg user">${q}</div>`;
+
+    const ans = getAiAnswer(q.toLowerCase());
+    setTimeout(() => {
+      box.innerHTML += `<div class="msg bot">${ans}</div>`;
+      box.scrollTop = box.scrollHeight;
+    }, 250);
+  }
+
+  function getAiAnswer(q) {
+    if (q.includes('10') || q.includes('diári') || q.includes('conduzir')) {
+      return '⏱️ <strong>Condução Diária (Reg. 561/2006):</strong> O limite padrão é <strong>9 horas por dia</strong>, podendo ser estendido até <strong>10 horas no máximo 2 vezes por semana</strong>. Lembre-se do limite semanal de 56h e quinzenal de 90h.';
+    }
+    if (q.includes('45') || q.includes('pausa') || q.includes('dividir')) {
+      return '☕ <strong>Pausa Dividida:</strong> Após 4h30 de condução precisa de 45 min de pausa. Pode dividi-la em <strong>exatamente 2 períodos</strong>: primeiro pelo menos <strong>15 minutos</strong>, seguido de pelo menos <strong>30 minutos</strong> (nunca 30m + 15m!).';
+    }
+    if (q.includes('fim de semana') || q.includes('alemanha') || q.includes('frança')) {
+      return '🚫 <strong>Proibições de Circulação (>7,5t):</strong><br>• <strong>Alemanha:</strong> Domingos e feriados das 00h00 às 22h00 (+ sábados em julho/agosto).<br>• <strong>França:</strong> Sábados/vésperas das 22h00 até domingo/feriado às 22h00.<br>• <strong>Exceções:</strong> Perecíveis, animais vivos e transporte combinado (até certos km).';
+    }
+    if (q.includes('adr') || q.includes('túnel') || q.includes('tunel')) {
+      return '☢️ <strong>Códigos de Túnel ADR:</strong><br>• <strong>A:</strong> Sem restrições.<br>• <strong>B:</strong> Proibidas cargas com risco de explosão muito grande.<br>• <strong>C/D:</strong> Restrições progressivas a inflamáveis, tóxicos e cisternas.<br>• <strong>E:</strong> Proibido a quase todas as cargas ADR (exceto certas isenções UN 2919/3291/etc.). Configure o código do seu documento de transporte na aba <em>Camião/ADR</em>.';
+    }
+    return '🚛 Posso ajudar com <strong>tempos de condução (9h/10h)</strong>, <strong>pausa dividida (15+30)</strong>, <strong>dupla tripulação</strong>, <strong>proibições na Alemanha/França</strong> ou <strong>códigos de túnel ADR</strong>. Experimente perguntar sobre um desses temas!';
+  }
+</script>
+</body>
+</html>
