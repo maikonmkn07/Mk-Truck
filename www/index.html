@@ -64,6 +64,10 @@
         <input type="text" id="dest-input" class="input-box" placeholder="Para onde vai? (ex: Porto, Vigo...)" value="" onkeypress="if(event.key==='Enter') calculateTruckRoute()" />
         <button class="btn-primary" onclick="calculateTruckRoute()">Ver Rotas</button>
       </div>
+      <div class="shortcuts-row">
+        <button class="shortcut-btn" onclick="goToSavedPlace('home')">🏠 Casa</button>
+        <button class="shortcut-btn" onclick="goToSavedPlace('work')">🏢 Trabalho</button>
+      </div>
       <div class="routes-chooser" id="routes-chooser"></div>
     </div>
 
@@ -76,11 +80,11 @@
 
     <div class="map-hud">
       <div class="route-summary-card" id="route-summary">
-        <div>
-          <div style="font-weight:700;font-size:.82rem;" id="summary-title">Rota HGV</div>
+        <div style="min-width:0;flex:1;">
+          <div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="summary-title">Rota HGV</div>
           <div style="font-size:.7rem;color:var(--muted);" id="summary-details">-- km • --h --m • Est.: €--</div>
         </div>
-        <div><span class="tag tag-ok" id="summary-adr-badge">Perfil OK</span></div>
+        <button class="btn-start-nav" id="btn-start-nav" onclick="toggleStartNav()">▶️ Iniciar</button>
       </div>
       <div class="hud-row">
         <div class="speed-box" id="speed-box">
@@ -194,6 +198,24 @@
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <h3>⚙️ Configurações MK Truck</h3>
       <button class="chip-btn" onclick="closeSettings()">✕</button>
+    </div>
+
+    <div class="settings-section">
+      <h4>📍 Endereços Favoritos (Atalhos)</h4>
+      <div class="field" style="margin-bottom:8px;">
+        <label>🏠 Endereço de Casa</label>
+        <div class="input-row">
+          <input type="text" id="set-home-addr" placeholder="Ex: Rua das Flores 12, Barcelos" oninput="saveSettings()" />
+          <button class="icon-btn" title="Usar local atual para Casa" onclick="fillSavedAddrWithGps('home')">📍</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>🏢 Endereço do Trabalho</label>
+        <div class="input-row">
+          <input type="text" id="set-work-addr" placeholder="Ex: Parque Industrial, Vigo" oninput="saveSettings()" />
+          <button class="icon-btn" title="Usar local atual para Trabalho" onclick="fillSavedAddrWithGps('work')">📍</button>
+        </div>
+      </div>
     </div>
 
     <div class="settings-section">
