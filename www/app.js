@@ -9,12 +9,7 @@ let settings = {
   alertLevel:'all', avoidTolls:false, speedAlert:true, units:'kmh'
 };
 let tacho = { mode:'rest', contUsed:0, dailyUsed:0, breakAcc:0, speedMult:1 };
-let currentPois = [
-  { name:"Área de Serviço Batalha / A1", km:118, freeSpots:14, diesel:1.62, cards:["DKV","UTA","Repsol"] },
-  { name:"Truck Park Vilar Formoso (Seguro)", km:325, freeSpots:4, diesel:1.59, cards:["DKV","Repsol"] },
-  { name:"Estación Salamanca HGV", km:445, freeSpots:0, diesel:1.49, cards:["DKV","UTA"] },
-  { name:"Madrid Sur Logistics Parking", km:615, freeSpots:22, diesel:1.51, cards:["UTA","Repsol"] }
-];
+let currentPois = [], poiLoading = false;
 
 function showToast(msg){
   const t = document.getElementById('toast-msg');
@@ -436,19 +431,83 @@ async function geocode(query){
   }catch(e){}
   return null;
 }
-function extractFirstStep(route){
-  try{
-    const steps = route.legs?.[0]?.steps;
-    if(!steps || steps.length===0) return 'Siga pela rota azul';
-    const st = steps.find(s=>s.name) || steps[0];
-    return st.name ? `Siga por ${st.name}` : 'Siga pela rota azul';
-  }catch(e){ return 'Siga pela rota azul'; }
+// ---------- Perfil do veículo ----------
+function getVehicleProfile(){
+  const num = (id, def) => { const v = parseFloat(document.getElementById(id)?.value); return isFinite(v) && v > 0 ? v : def; };
+  const euro = document.getElementById('veh-euro')?.value || 'euro6_5';
+  const axles = parseInt(euro.split('_')[1], 10) || 5;
+  const adr = document.getElementById('veh-adr')?.value || 'none';
+  return {
+    type: document.getElementById('veh-type')?.value || 'hgv',
+    height: num('veh-height', 4.0),
+    width: num('veh-width', 2.55),
+    length: num('veh-length', 16.5),
+    weight: num('veh-weight', 40),
+    axleLoad: num('veh-axle', 11.5),
+    axles,
+    hazmat: adr !== 'none',
+    adr,
+    zev: euro.startsWith('ev')
+  };
+}
+
+// Descodifica polyline do Valhalla (precisão 6) -> [[lon,lat],...]
+function decodePolyline6(str){
+  const out = []; let i = 0, lat = 0, lon = 0;
+  while(i < str.length){
+    let b, shift = 0, result = 0;
+    do{ b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; }while(b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do{ b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; }while(b >= 0x20);
+    lon += (result & 1) ? ~(result >> 1) : (result >> 1);
+    out.push([lon / 1e6, lat / 1e6]);
+  }
+  return out;
+}
+
+const VALHALLA_URL = 'https://valhalla1.openstreetmap.de/route';
+
+// Pede ao Valhalla uma rota com perfil CAMIÃO (respeita altura, peso, largura, comprimento, eixos e ADR)
+async function fetchTruckRoutes(p1, p2, v, { noToll=false, alternates=0 } = {}){
+  const lang = (settings.voiceLang || 'pt-PT');
+  const req = {
+    locations: [{ lon:p1[0], lat:p1[1] }, { lon:p2[0], lat:p2[1] }],
+    costing: 'truck',
+    costing_options: { truck: {
+      height: v.height, width: v.width, length: v.length,
+      weight: v.weight, axle_load: v.axleLoad, axle_count: v.axles,
+      hazmat: v.hazmat,
+      use_tolls: noToll ? 0 : 0.5,
+      use_highways: noToll ? 0.2 : 1.0
+    } },
+    alternates,
+    directions_options: { language: ['pt-PT','pt-BR','es-ES','en-GB'].includes(lang) ? lang : 'pt-PT', units: 'kilometers' }
+  };
+  const r = await fetch(VALHALLA_URL + '?json=' + encodeURIComponent(JSON.stringify(req)));
+  const d = await r.json();
+  if(!r.ok || !d.trip){ throw new Error(d.error || ('HTTP ' + r.status)); }
+  const trips = [d.trip, ...(d.alternates || []).map(a => a.trip)];
+  return trips.map(t => {
+    const coords = [];
+    (t.legs || []).forEach(leg => decodePolyline6(leg.shape).forEach(c => coords.push(c)));
+    const maneuvers = (t.legs || []).flatMap(leg => leg.maneuvers || []);
+    return {
+      distanceKm: Math.round(t.summary.length),
+      timeSec: t.summary.time,
+      hasToll: !!t.summary.has_toll,
+      hasHighway: !!t.summary.has_highway,
+      coords,
+      maneuvers,
+      firstStep: (maneuvers.find(m => m.instruction) || {}).instruction || 'Siga pela rota azul'
+    };
+  });
 }
 
 async function calculateTruckRoute(){
   const origTxt = document.getElementById('origin-input').value.trim(), destTxt = document.getElementById('dest-input').value.trim();
   if(!destTxt){ showToast('Escreva o destino primeiro!'); return; }
-  showToast('A calcular rotas HGV...');
+  showToast('A calcular rotas para camião...');
   let p1 = null;
   if(origTxt.startsWith('📍')){
     p1 = await getNativeLocation(true) || customOriginCoords || userCurrentCoords;
@@ -461,38 +520,48 @@ async function calculateTruckRoute(){
   const p2 = await geocode(destTxt);
   if(!p2){ showToast('Destino não encontrado. Tente incluir cidade/país.'); return; }
 
+  const v = getVehicleProfile();
   routeOptions = [];
-  const uAlt = `https://router.project-osrm.org/route/v1/driving/${p1[0]},${p1[1]};${p2[0]},${p2[1]}?overview=full&geometries=geojson&alternatives=3&steps=true`;
-  const uNoHw = `https://router.project-osrm.org/route/v1/driving/${p1[0]},${p1[1]};${p2[0]},${p2[1]}?overview=full&geometries=geojson&exclude=motorway&steps=true`;
-  const [rAlt, rNo] = await Promise.allSettled([fetch(uAlt).then(r=>r.json()), fetch(uNoHw).then(r=>r.json())]);
+  const [rFast, rNoToll] = await Promise.allSettled([
+    fetchTruckRoutes(p1, p2, v, { alternates: 2 }),
+    fetchTruckRoutes(p1, p2, v, { noToll: true })
+  ]);
 
-  if(rAlt.status==='fulfilled' && rAlt.value.routes){
-    rAlt.value.routes.forEach((r,i)=>routeOptions.push({ label: i===0?'⚡ Mais Rápida':`🔀 Alternativa ${i+1}`, distanceKm:Math.round(r.distance/1000), coords:r.geometry.coordinates, firstStep:extractFirstStep(r), isNoToll:false }));
+  if(rFast.status === 'fulfilled'){
+    rFast.value.forEach((r,i) => routeOptions.push({ ...r, label: i===0 ? '⚡ Mais Rápida' : `🔀 Alternativa ${i+1}`, isNoToll:false }));
   }
-  if(rNo.status==='fulfilled' && rNo.value.routes?.[0]){
-    const r = rNo.value.routes[0], km = Math.round(r.distance/1000);
-    if(!routeOptions.some(o=>Math.abs(o.distanceKm-km)<=2 && o.coords.length===r.geometry.coordinates.length)){
-      routeOptions.push({label:'💶 Sem Autoestrada', distanceKm:km, coords:r.geometry.coordinates, firstStep:extractFirstStep(r), isNoToll:true});
-    }
+  if(rNoToll.status === 'fulfilled' && rNoToll.value[0]){
+    const r = rNoToll.value[0];
+    const dup = routeOptions.some(o => Math.abs(o.distanceKm - r.distanceKm) <= 2 && Math.abs(o.timeSec - r.timeSec) <= 120);
+    if(!dup) routeOptions.push({ ...r, label: '💶 Sem Portagens', isNoToll:true });
   }
-  if(routeOptions.length===0) routeOptions.push({label:'⚡ Rota Direta', distanceKm:50, coords:[p1,p2], firstStep:'Siga pela rota azul', isNoToll:false});
+
+  if(routeOptions.length === 0){
+    // NUNCA usar uma rota de carro como se fosse de camião: avisar e não navegar.
+    const msg = (rFast.reason && rFast.reason.message) || 'sem resposta';
+    showToast('⚠️ Sem rota para este camião (' + msg + '). Verifique internet e as medidas do veículo.');
+    speak('Não foi possível calcular uma rota para o seu camião.', 'route');
+    return;
+  }
 
   let idx = 0;
-  if(settings.avoidTolls){ const n=routeOptions.findIndex(o=>o.isNoToll); if(n!==-1) idx=n; }
+  if(settings.avoidTolls){ const n = routeOptions.findIndex(o => o.isNoToll); if(n !== -1) idx = n; }
   setNavigationUI(false);
   selectRoute(idx, origTxt || 'Origem', destTxt);
   speak(`Encontradas ${routeOptions.length} rotas para ${destTxt}. Escolha uma e toque em Iniciar.`, 'route');
 }
 
 function computeRouteStats(opt){
-  const driveH = opt.distanceKm / (opt.isNoToll ? 58 : 72);
-  const totH = driveH + Math.floor(driveH/4.5)*0.75;
-  const hh = Math.floor(totH), mm = Math.round((totH-hh)*60);
+  const driveH = opt.timeSec / 3600;                       // tempo real do routing para camião
+  const totH = driveH + Math.floor(driveH / 4.5) * 0.75;   // + pausas de 45 min por cada 4h30
+  const hh = Math.floor(totH), mm = Math.round((totH - hh) * 60);
   const cons = parseFloat(document.getElementById('veh-fuel').value) || 31;
-  const toll = opt.isNoToll ? 0 : (document.getElementById('veh-euro').value.includes('ev') ? 0.06 : 0.19);
-  const cost = Math.round((opt.distanceKm/100)*cons*1.58 + opt.distanceKm*toll);
-  const distDisp = settings.units==='mph' ? `${Math.round(opt.distanceKm*0.621371)} mi` : `${opt.distanceKm} km`;
-  return {hh, mm, cost, distDisp};
+  const v = getVehicleProfile();
+  const fuelCost = v.zev ? 0 : (opt.distanceKm / 100) * cons * 1.58;       // preço do gasóleo é uma estimativa fixa
+  const tollCost = opt.hasToll ? opt.distanceKm * (v.zev ? 0.06 : 0.19) : 0; // estimativa grosseira de portagem
+  const cost = Math.round(fuelCost + tollCost);
+  const distDisp = settings.units === 'mph' ? `${Math.round(opt.distanceKm * 0.621371)} mi` : `${opt.distanceKm} km`;
+  return { hh, mm, cost, distDisp };
 }
 
 function selectRoute(idx, origTxt, destTxt){
@@ -559,7 +628,6 @@ function toggleSimulation(){
     updateNavMarker(pos, calcBearing(prev, pos));
     if(lMap) lMap.panTo([pos[1], pos[0]]);
     updateSpeedHud(76 + Math.floor(Math.random()*9));
-    if(simIndex === Math.floor(routeCoords.length*0.35)) speak('Atenção: ponte à frente com altura de 4 metros e 20.','hazard');
     if(simIndex >= routeCoords.length-1){ toggleSimulation(); speak('Chegou ao seu destino.','route'); }
   }, 600);
 }
@@ -601,26 +669,85 @@ function updateTachoUI(){
   document.getElementById('lbl-break').innerText=`${Math.floor(tacho.breakAcc/60)} / 45 min`;
   document.getElementById('bar-break').style.width=((tacho.breakAcc/2700)*100)+'%';
 }
+function haversineKm(a, b){
+  const R=6371, rad=d=>d*Math.PI/180, dLat=rad(b[1]-a[1]), dLon=rad(b[0]-a[0]);
+  const x=Math.sin(dLat/2)**2+Math.cos(rad(a[1]))*Math.cos(rad(b[1]))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+function poiCenter(){
+  if(routeCoords.length>1) return routeCoords[Math.floor(routeCoords.length/2)];
+  return userCurrentCoords || (lNavMarker ? [lNavMarker.getLatLng().lng, lNavMarker.getLatLng().lat] : null);
+}
+// Parques de camiões e postos de combustível REAIS (OpenStreetMap via Overpass), num raio de 25 km
+async function loadRealPois(){
+  const c = userCurrentCoords || poiCenter();
+  if(!c){ showToast('Ative o GPS ou calcule uma rota primeiro.'); return; }
+  if(poiLoading) return;
+  poiLoading = true; renderPoiList();
+  const q = `[out:json][timeout:20];(
+    nwr["amenity"="fuel"]["hgv"!="no"](around:25000,${c[1]},${c[0]});
+    nwr["amenity"="parking"]["hgv"="yes"](around:25000,${c[1]},${c[0]});
+    nwr["amenity"="parking"]["capacity:hgv"](around:25000,${c[1]},${c[0]});
+  );out center 60;`;
+  try{
+    const r = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data='+encodeURIComponent(q) });
+    const d = await r.json();
+    currentPois = (d.elements||[]).map(e=>{
+      const t=e.tags||{}, pos=[e.lon ?? e.center?.lon, e.lat ?? e.center?.lat];
+      if(pos[0]==null) return null;
+      const isFuel = t.amenity==='fuel';
+      return {
+        kind: isFuel ? 'fuel' : 'park',
+        name: t.name || t.brand || (isFuel ? 'Posto de combustível' : 'Parque de camiões'),
+        dist: haversineKm(c, pos),
+        hgvSpots: t['capacity:hgv'] || '',
+        fee: t.fee || '',
+        diesel: t['fuel:HGV_diesel']==='yes' ? 'Gasóleo pesados' : ''
+      };
+    }).filter(Boolean).sort((a,b)=>a.dist-b.dist);
+    if(!currentPois.length) showToast('Sem parques/postos para camiões nos mapas num raio de 25 km.');
+  }catch(e){ showToast('⚠️ Não foi possível carregar parques/postos (sem internet?).'); }
+  poiLoading = false; renderPoiList();
+}
 function renderPoiList(){
-  const filter=document.getElementById('fuel-card-filter').value, remKm=Math.round(((16200-tacho.contUsed)/3600)*75);
+  const filter=document.getElementById('fuel-card-filter').value;
   const list=document.getElementById('poi-list'); list.innerHTML='';
-  currentPois.filter(p=>filter==='all'||p.cards.includes(filter)).forEach(p=>{
-    const badge=p.freeSpots===0?`<span class="tag tag-bad">Lotado</span>`:(p.km<=remKm?`<span class="tag tag-ok">${p.freeSpots} vagas • Alcançável</span>`:`<span class="tag tag-warn">Excede 4h30</span>`);
-    list.innerHTML+=`<div class="poi-item"><div><strong>${p.name}</strong><br><span style="color:var(--muted);">Km ${p.km} • Diesel €${p.diesel.toFixed(2)}/L • ${p.cards.join(', ')}</span></div><div>${badge}</div></div>`;
+  if(poiLoading){ list.innerHTML='<div class="poi-item">A procurar...</div>'; return; }
+  const items=currentPois.filter(p=>filter==='all'||p.kind===filter);
+  if(!items.length){ list.innerHTML='<div class="poi-item" style="color:var(--muted);">Toque em Atualizar para procurar parques e postos para camiões perto de si (dados do OpenStreetMap).</div>'; return; }
+  items.slice(0,25).forEach(p=>{
+    const info=[`${p.dist.toFixed(1)} km`, p.hgvSpots?`${p.hgvSpots} vagas pesados`:'', p.fee==='yes'?'pago':(p.fee==='no'?'gratuito':''), p.diesel].filter(Boolean).join(' • ');
+    const badge=p.kind==='fuel'?'<span class="tag tag-warn">⛽ Posto</span>':'<span class="tag tag-ok">🅿️ Parque</span>';
+    const el=document.createElement('div'); el.className='poi-item';
+    el.innerHTML=`<div><strong></strong><br><span style="color:var(--muted);"></span></div><div>${badge}</div>`;
+    el.querySelector('strong').textContent=p.name; el.querySelector('span').textContent=info;
+    list.appendChild(el);
   });
 }
+const PROFILE_FIELDS = ['veh-type','veh-euro','veh-height','veh-width','veh-length','veh-weight','veh-axle','veh-fuel','veh-adr','veh-tunnel'];
 function saveProfile(){
-  const p={height:document.getElementById('veh-height').value,weight:document.getElementById('veh-weight').value,adr:document.getElementById('veh-adr').value};
-  localStorage.setItem('mk_truck_profile',JSON.stringify(p));
-  document.getElementById('lbl-h').innerText=p.height+'m'; document.getElementById('lbl-w').innerText=p.weight+'t';
+  const p = {};
+  PROFILE_FIELDS.forEach(id => { const el = document.getElementById(id); if(el) p[id] = el.value; });
+  try{ localStorage.setItem('mk_truck_profile', JSON.stringify(p)); }catch(e){}
+  document.getElementById('lbl-h').innerText = (p['veh-height'] || '4.0') + 'm';
+  document.getElementById('lbl-w').innerText = (p['veh-weight'] || '40') + 't';
+  // Se já há rota calculada, avisa que tem de recalcular com o novo perfil
+  if(routeOptions.length) showToast('Perfil alterado. Toque em Ver Rotas para recalcular.');
 }
 function loadProfile(){
-  const raw=localStorage.getItem('mk_truck_profile'); if(!raw) return;
-  const p=JSON.parse(raw);
-  if(p.height) document.getElementById('veh-height').value=p.height;
-  if(p.weight) document.getElementById('veh-weight').value=p.weight;
-  if(p.adr) document.getElementById('veh-adr').value=p.adr;
-  document.getElementById('lbl-h').innerText=(p.height||'4.0')+'m'; document.getElementById('lbl-w').innerText=(p.weight||'40')+'t';
+  let p = null;
+  try{ p = JSON.parse(localStorage.getItem('mk_truck_profile') || 'null'); }catch(e){}
+  if(p){
+    // compatível com o formato antigo (height/weight/adr)
+    const legacy = { 'veh-height':p.height, 'veh-weight':p.weight, 'veh-adr':p.adr };
+    PROFILE_FIELDS.forEach(id => {
+      const val = p[id] !== undefined ? p[id] : legacy[id];
+      const el = document.getElementById(id);
+      if(el && val !== undefined && val !== '') el.value = val;
+    });
+  }
+  document.getElementById('lbl-h').innerText = document.getElementById('veh-height').value + 'm';
+  document.getElementById('lbl-w').innerText = document.getElementById('veh-weight').value + 't';
 }
 function askPreset(q){ document.getElementById('chat-input').value=q; sendChat(); }
 function sendChat(){
