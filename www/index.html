@@ -13,7 +13,7 @@
     body{background:var(--bg);color:var(--text);height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
 
     /* CAPA AUTOMÁTICA 3 SEGUNDOS */
-    #splash-screen{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 28%,#172a4a 0%,#070b14 75%);color:#f8fafc;padding:24px;text-align:center;transition:opacity .55s ease,visibility .55s ease;}
+    #splash-screen{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 28%,#172a4a 0%,#070b14 75%);color:#f8fafc;padding:24px;text-align:center;transition:opacity .5s ease,visibility .5s ease;}
     #splash-screen.hidden{opacity:0;visibility:hidden;pointer-events:none;}
     .splash-badge{background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.45);color:#38bdf8;padding:4px 12px;border-radius:99px;font-size:.72rem;font-weight:700;letter-spacing:1.5px;margin-bottom:16px;}
     .truck-art{width:100%;max-width:290px;margin-bottom:12px;filter:drop-shadow(0 12px 24px rgba(0,0,0,.65));}
@@ -133,9 +133,7 @@
 </head>
 <body>
 
-<div id="toast-msg"></div>
-
-<!-- CAPA AUTOMÁTICA (3 SEGUNDOS, SEM BOTÃO) -->
+<!-- CAPA AUTOMÁTICA (3 SEGUNDOS, SEM DEPENDER DE INTERNET) -->
 <div id="splash-screen">
   <div class="splash-badge">NAVEGAÇÃO PARA PESADOS</div>
   <svg class="truck-art" viewBox="0 0 360 155" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -158,6 +156,23 @@
   <p class="splash-sub">A iniciar navegador GPS e tacógrafo...</p>
   <div class="splash-progress-wrap"><div class="splash-progress-bar"></div></div>
 </div>
+
+<!-- TEMPORIZADOR INDEPENDENTE PARA FECHAR A CAPA EM 3 SEGUNDOS SEMPRE -->
+<script>
+  function closeSplash(){
+    var s = document.getElementById('splash-screen');
+    if(s){
+      s.classList.add('hidden');
+      setTimeout(function(){ s.style.display='none'; }, 550);
+    }
+    if(typeof map !== 'undefined' && map && map.resize){
+      try{ setTimeout(function(){ map.resize(); }, 200); }catch(e){}
+    }
+  }
+  setTimeout(closeSplash, 3000);
+</script>
+
+<div id="toast-msg"></div>
 
 <header>
   <div class="brand"><span>🚛 MK Truck</span></div>
@@ -231,14 +246,4 @@
       <div class="card">
         <h2><span>🅿️ Parques e Combustível na Rota</span><button class="chip-btn" onclick="renderPoiList()">Atualizar</button></h2>
         <div class="field" style="margin-bottom:8px;">
-          <label>Filtrar por Cartão Frota</label>
-          <select id="fuel-card-filter" onchange="renderPoiList()"><option value="all">Todos os Postos & Parques</option><option value="DKV">Aceita DKV</option><option value="UTA">Aceita UTA</option><option value="Repsol">Aceita Repsol Solred</option></select>
-        </div>
-        <div id="poi-list"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- PERFIL CAMIÃO / ADR -->
-  <section id="view-profile" class="tab-view">
-    <div class="container"
+          <label>Filtrar por Cart
