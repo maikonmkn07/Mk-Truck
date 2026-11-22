@@ -9,6 +9,7 @@ on:
       - '.github/workflows/ota-update.yml'
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -18,10 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-ota:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +39,26 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         with:
           path: ota-site
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aguardar indice do artefato no GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for i in $(seq 1 15); do
+            COUNT=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); console.log((d.artifacts||[]).filter(a=>a.name==="github-pages").length);')
+            echo "Tentativa $i: $COUNT artefato(s)"
+            if [ "$COUNT" -ge 1 ]; then break; fi
+            sleep 2
+          done
 
       - name: Publicar no GitHub Pages
         id: deployment
