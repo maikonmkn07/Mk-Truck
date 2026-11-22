@@ -1,5 +1,10 @@
 {
   "appId": "com.mktruck.app",
   "appName": "MK Truck",
-  "webDir": "www"
+  "webDir": "www",
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false
+    }
+  }
 }
