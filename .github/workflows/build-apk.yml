@@ -20,11 +20,151 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Gerar projeto Android com Capacitor
+      - name: Instalar conversor de ícone SVG para PNG
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin
+
+      - name: Gerar projeto Android, Permissões e Ícone Camião na Estrada
         run: |
           npm install
           npx cap add android
-          node -e "const fs=require('fs'), p='android/app/src/main/AndroidManifest.xml'; let s=fs.readFileSync(p,'utf8'); s=s.replace('<application', '<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />\n    <application'); fs.writeFileSync(p,s);"
+
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/src/main/AndroidManifest.xml";
+            let s = fs.readFileSync(p, "utf8");
+            const perms = `
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>`;
+            s = s.replace("<application", perms + "\n    <application");
+            fs.writeFileSync(p, s);
+          '
+
+          cat << 'EOF' > /tmp/bg.svg
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+            <defs>
+              <radialGradient id="sky" cx="50%" cy="35%" r="70%">
+                <stop offset="0%" stop-color="#1e3a5f"/>
+                <stop offset="100%" stop-color="#070d19"/>
+              </radialGradient>
+            </defs>
+            <rect width="1024" height="1024" fill="url(#sky)"/>
+            <ellipse cx="512" cy="580" rx="360" ry="120" fill="#38bdf8" opacity="0.16"/>
+            <path d="M 370 585 L 654 585 L 944 1024 L 80 1024 Z" fill="#1e293b"/>
+            <line x1="370" y1="585" x2="100" y2="1024" stroke="#38bdf8" stroke-width="14"/>
+            <line x1="654" y1="585" x2="924" y2="1024" stroke="#38bdf8" stroke-width="14"/>
+            <path d="M 504 715 L 520 715 L 524 775 L 500 775 Z" fill="#facc15"/>
+            <path d="M 497 815 L 527 815 L 534 905 L 490 905 Z" fill="#facc15"/>
+            <path d="M 487 945 L 537 945 L 543 1024 L 481 1024 Z" fill="#facc15"/>
+          </svg>
+          EOF
+
+          cat << 'EOF' > /tmp/fg.svg
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+            <polygon points="362,634 416,634 445,745 315,745" fill="#fef08a" opacity="0.24"/>
+            <polygon points="608,634 662,634 709,745 579,745" fill="#fef08a" opacity="0.24"/>
+            <rect x="364" y="646" width="58" height="58" rx="14" fill="#090d16" stroke="#475569" stroke-width="6"/>
+            <rect x="602" y="646" width="58" height="58" rx="14" fill="#090d16" stroke="#475569" stroke-width="6"/>
+            <rect x="296" y="370" width="32" height="110" rx="14" fill="#1e293b" stroke="#94a3b8" stroke-width="6"/>
+            <line x1="328" y1="395" x2="352" y2="395" stroke="#94a3b8" stroke-width="10"/>
+            <rect x="696" y="370" width="32" height="110" rx="14" fill="#1e293b" stroke="#94a3b8" stroke-width="6"/>
+            <line x1="672" y1="395" x2="696" y2="395" stroke="#94a3b8" stroke-width="10"/>
+            <path d="M 370 335 L 405 268 C 412 256 425 252 440 252 H 584 C 599 252 612 256 619 268 L 654 335 Z" fill="#0284c7" stroke="#bae6fd" stroke-width="8"/>
+            <circle cx="425" cy="286" r="10" fill="#f59e0b"/>
+            <circle cx="599" cy="286" r="10" fill="#f59e0b"/>
+            <rect x="455" y="274" width="114" height="22" rx="11" fill="#0f172a" stroke="#38bdf8" stroke-width="4"/>
+            <rect x="348" y="330" width="328" height="315" rx="34" fill="#0ea5e9" stroke="#e0f2fe" stroke-width="10"/>
+            <rect x="378" y="358" width="268" height="110" rx="18" fill="#091326" stroke="#7dd3fc" stroke-width="6"/>
+            <polygon points="396,370 448,370 412,456 390,456" fill="#38bdf8" opacity="0.25"/>
+            <rect x="392" y="490" width="240" height="92" rx="14" fill="#0f172a" stroke="#bae6fd" stroke-width="5"/>
+            <line x1="414" y1="516" x2="610" y2="516" stroke="#38bdf8" stroke-width="9" stroke-linecap="round"/>
+            <line x1="422" y1="538" x2="602" y2="538" stroke="#64748b" stroke-width="8" stroke-linecap="round"/>
+            <line x1="430" y1="560" x2="594" y2="560" stroke="#64748b" stroke-width="8" stroke-linecap="round"/>
+            <rect x="340" y="592" width="344" height="58" rx="18" fill="#1e293b" stroke="#94a3b8" stroke-width="7"/>
+            <rect x="362" y="606" width="54" height="28" rx="10" fill="#fef08a" stroke="#f59e0b" stroke-width="4"/>
+            <rect x="608" y="606" width="54" height="28" rx="10" fill="#fef08a" stroke="#f59e0b" stroke-width="4"/>
+            <rect x="462" y="610" width="100" height="22" rx="5" fill="#f8fafc"/>
+          </svg>
+          EOF
+
+          cat << 'EOF' > /tmp/full.svg
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+            <defs>
+              <radialGradient id="sky" cx="50%" cy="35%" r="70%">
+                <stop offset="0%" stop-color="#1e3a5f"/>
+                <stop offset="100%" stop-color="#070d19"/>
+              </radialGradient>
+              <clipPath id="round">
+                <rect width="1024" height="1024" rx="220"/>
+              </clipPath>
+            </defs>
+            <g clip-path="url(#round)">
+              <rect width="1024" height="1024" fill="url(#sky)"/>
+              <ellipse cx="512" cy="580" rx="360" ry="120" fill="#38bdf8" opacity="0.16"/>
+              <path d="M 370 585 L 654 585 L 944 1024 L 80 1024 Z" fill="#1e293b"/>
+              <line x1="370" y1="585" x2="100" y2="1024" stroke="#38bdf8" stroke-width="14"/>
+              <line x1="654" y1="585" x2="924" y2="1024" stroke="#38bdf8" stroke-width="14"/>
+              <path d="M 504 715 L 520 715 L 524 775 L 500 775 Z" fill="#facc15"/>
+              <path d="M 497 815 L 527 815 L 534 905 L 490 905 Z" fill="#facc15"/>
+              <path d="M 487 945 L 537 945 L 543 1024 L 481 1024 Z" fill="#facc15"/>
+              <polygon points="362,634 416,634 445,745 315,745" fill="#fef08a" opacity="0.24"/>
+              <polygon points="608,634 662,634 709,745 579,745" fill="#fef08a" opacity="0.24"/>
+              <rect x="364" y="646" width="58" height="58" rx="14" fill="#090d16" stroke="#475569" stroke-width="6"/>
+              <rect x="602" y="646" width="58" height="58" rx="14" fill="#090d16" stroke="#475569" stroke-width="6"/>
+              <rect x="296" y="370" width="32" height="110" rx="14" fill="#1e293b" stroke="#94a3b8" stroke-width="6"/>
+              <line x1="328" y1="395" x2="352" y2="395" stroke="#94a3b8" stroke-width="10"/>
+              <rect x="696" y="370" width="32" height="110" rx="14" fill="#1e293b" stroke="#94a3b8" stroke-width="6"/>
+              <line x1="672" y1="395" x2="696" y2="395" stroke="#94a3b8" stroke-width="10"/>
+              <path d="M 370 335 L 405 268 C 412 256 425 252 440 252 H 584 C 599 252 612 256 619 268 L 654 335 Z" fill="#0284c7" stroke="#bae6fd" stroke-width="8"/>
+              <circle cx="425" cy="286" r="10" fill="#f59e0b"/>
+              <circle cx="599" cy="286" r="10" fill="#f59e0b"/>
+              <rect x="455" y="274" width="114" height="22" rx="11" fill="#0f172a" stroke="#38bdf8" stroke-width="4"/>
+              <rect x="348" y="330" width="328" height="315" rx="34" fill="#0ea5e9" stroke="#e0f2fe" stroke-width="10"/>
+              <rect x="378" y="358" width="268" height="110" rx="18" fill="#091326" stroke="#7dd3fc" stroke-width="6"/>
+              <polygon points="396,370 448,370 412,456 390,456" fill="#38bdf8" opacity="0.25"/>
+              <rect x="392" y="490" width="240" height="92" rx="14" fill="#0f172a" stroke="#bae6fd" stroke-width="5"/>
+              <line x1="414" y1="516" x2="610" y2="516" stroke="#38bdf8" stroke-width="9" stroke-linecap="round"/>
+              <line x1="422" y1="538" x2="602" y2="538" stroke="#64748b" stroke-width="8" stroke-linecap="round"/>
+              <line x1="430" y1="560" x2="594" y2="560" stroke="#64748b" stroke-width="8" stroke-linecap="round"/>
+              <rect x="340" y="592" width="344" height="58" rx="18" fill="#1e293b" stroke="#94a3b8" stroke-width="7"/>
+              <rect x="362" y="606" width="54" height="28" rx="10" fill="#fef08a" stroke="#f59e0b" stroke-width="4"/>
+              <rect x="608" y="606" width="54" height="28" rx="10" fill="#fef08a" stroke="#f59e0b" stroke-width="4"/>
+              <rect x="462" y="610" width="100" height="22" rx="5" fill="#f8fafc"/>
+            </g>
+          </svg>
+          EOF
+
+          RES="android/app/src/main/res"
+          mkdir -p "$RES/mipmap-anydpi-v26"
+          cat << 'EOF' > "$RES/mipmap-anydpi-v26/ic_launcher.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@mipmap/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+          cp "$RES/mipmap-anydpi-v26/ic_launcher.xml" "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
+
+          generate_icons() {
+            DIR="$RES/mipmap-$1"
+            LEG="$2"
+            ADA="$3"
+            mkdir -p "$DIR"
+            rsvg-convert -w "$LEG" -h "$LEG" /tmp/full.svg -o "$DIR/ic_launcher.png"
+            rsvg-convert -w "$LEG" -h "$LEG" /tmp/full.svg -o "$DIR/ic_launcher_round.png"
+            rsvg-convert -w "$ADA" -h "$ADA" /tmp/bg.svg -o "$DIR/ic_launcher_background.png"
+            rsvg-convert -w "$ADA" -h "$ADA" /tmp/fg.svg -o "$DIR/ic_launcher_foreground.png"
+          }
+
+          generate_icons mdpi 48 108
+          generate_icons hdpi 72 162
+          generate_icons xhdpi 96 216
+          generate_icons xxhdpi 144 324
+          generate_icons xxxhdpi 192 432
+
           npx cap sync android
 
       - name: Compilar APK
