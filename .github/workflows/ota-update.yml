@@ -6,6 +6,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'www/**'
+      - '.github/workflows/ota-update.yml'
 
 permissions:
   contents: read
@@ -37,7 +38,7 @@ jobs:
           (cd www && zip -r ../ota-site/bundle.zip .)
           node -e 'require("fs").writeFileSync("ota-site/version.json", JSON.stringify({ version: "1.0." + process.env.RUN_NUM, url: process.env.BASE_URL + "/bundle.zip" }))'
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: ota-site
 
