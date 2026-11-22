@@ -125,10 +125,10 @@
         <div class="progress-wrap"><div class="progress-head"><span>Pausa Obrigatória (45 min)</span><strong id="lbl-break">0 / 45 min</strong></div><div class="progress-bar"><div class="progress-fill" id="bar-break" style="width:0%;background:var(--accent)"></div></div></div>
       </div>
       <div class="card">
-        <h2><span>🅿️ Parques e Combustível na Rota</span><button class="chip-btn" onclick="renderPoiList()">Atualizar</button></h2>
+        <h2><span>🅿️ Parques e Combustível na Rota</span><button class="chip-btn" onclick="loadRealPois()">Atualizar</button></h2>
         <div class="field" style="margin-bottom:8px;">
-          <label>Filtrar por Cartão Frota</label>
-          <select id="fuel-card-filter" onchange="renderPoiList()"><option value="all">Todos os Postos & Parques</option><option value="DKV">Aceita DKV</option><option value="UTA">Aceita UTA</option><option value="Repsol">Aceita Repsol Solred</option></select>
+          <label>Mostrar</label>
+          <select id="fuel-card-filter" onchange="renderPoiList()"><option value="all">Parques e Postos</option><option value="park">Só parques de camiões</option><option value="fuel">Só postos de combustível</option></select>
         </div>
         <div id="poi-list"></div>
       </div>
@@ -156,7 +156,7 @@
           <div class="field"><label>Classe ADR</label><select id="veh-adr" onchange="saveProfile()"><option value="none">Sem carga ADR</option><option value="3">Classe 3 — Inflamáveis</option><option value="1">Classe 1 — Explosivos</option><option value="2">Classe 2 — Gases</option><option value="8">Classe 8 — Corrosivos</option><option value="water">Poluente Marinho</option></select></div>
           <div class="field"><label>Restrição de Túnel</label><select id="veh-tunnel" onchange="saveProfile()"><option value="none">Nenhum</option><option value="B">Categoria B</option><option value="C">Categoria C</option><option value="D">Categoria D</option><option value="E">Categoria E</option></select></div>
         </div>
-        <p style="font-size:.76rem;color:var(--muted);margin-top:10px;">Evita pontes abaixo de <strong id="lbl-h">4.0m</strong>, vias abaixo de <strong id="lbl-w">40t</strong> e túneis incompatíveis com ADR.</p>
+        <p style="font-size:.76rem;color:var(--muted);margin-top:10px;">O cálculo de rotas usa o perfil de camião (altura <strong id="lbl-h">4.0m</strong>, peso <strong id="lbl-w">40t</strong>, largura, comprimento, eixos e ADR) e evita vias com essas restrições nos mapas. A categoria de túnel ADR é só informativa: confirme sempre a sinalização na estrada.</p>
       </div>
     </div>
   </section>
