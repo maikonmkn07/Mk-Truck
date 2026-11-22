@@ -28,6 +28,8 @@ jobs:
       - name: Gerar projeto Android, SDK, Permissões e Ícone Camião
         run: |
           npm install
+          sed -i "s/var MK_BUILD = 0;/var MK_BUILD = $(date +%s);/" www/index.html
+          grep -n "var MK_BUILD" www/index.html
           npx cap add android
 
           node -e 'const fs=require("fs");const v="android/variables.gradle";fs.writeFileSync(v,fs.readFileSync(v,"utf8").replace(/minSdkVersion\s*=\s*\d+/,"minSdkVersion = 23").replace(/compileSdkVersion\s*=\s*\d+/,"compileSdkVersion = 35").replace(/targetSdkVersion\s*=\s*\d+/,"targetSdkVersion = 34"));const b="android/build.gradle";fs.writeFileSync(b,fs.readFileSync(b,"utf8").replace(/com\.android\.tools\.build:gradle:[0-9.]+/,"com.android.tools.build:gradle:8.6.1"));const w="android/gradle/wrapper/gradle-wrapper.properties";fs.writeFileSync(w,fs.readFileSync(w,"utf8").replace(/gradle-[0-9.]+-(all|bin)\.zip/,"gradle-8.7-all.zip"));'
