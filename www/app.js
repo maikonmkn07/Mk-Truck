@@ -181,7 +181,6 @@ function applySettingsUI(){
   document.getElementById('hud-unit-lbl').innerText = settings.units==='mph' ? 'mph (HGV)' : 'km/h (HGV)';
 }
 
-/* ATALHOS CASA E TRABALHO */
 async function fillSavedAddrWithGps(type){
   showToast('A obter endereço atual...');
   const coords = await getNativeLocation(false);
@@ -320,15 +319,23 @@ function updateSpeedHud(kmh){
   }else box.classList.remove('overspeed');
 }
 
-function updateStartButtonUI(){
+function setNavigationUI(active){
+  isNavigating = active;
   const btn = document.getElementById('btn-start-nav');
-  if(!btn) return;
-  if(isNavigating){
-    btn.classList.add('running');
-    btn.innerHTML = '⏹️ Parar';
-  }else{
-    btn.classList.remove('running');
-    btn.innerHTML = '▶️ Iniciar';
+  const topBar = document.getElementById('map-top-bar');
+  const banner = document.getElementById('nav-banner');
+  if(btn){
+    btn.classList.toggle('running', active);
+    btn.innerHTML = active ? '⏹️ Parar' : '▶️ Iniciar';
+  }
+  if(topBar) topBar.classList.toggle('hidden', active);
+  if(banner){
+    banner.classList.toggle('visible', active);
+    if(active && routeOptions[selectedRouteIdx]){
+      const opt = routeOptions[selectedRouteIdx];
+      document.getElementById('nav-step-title').innerText = opt.firstStep || 'Siga pela rota azul';
+      document.getElementById('nav-step-sub').innerText = `${opt.label} • ${opt.distanceKm} km até ao destino`;
+    }
   }
 }
 
@@ -336,37 +343,28 @@ async function toggleStartNav(){
   if(isNavigating){
     if(simInterval){ clearInterval(simInterval); simInterval=null; document.getElementById('btn-sim').innerText='▶️'; }
     if(liveGpsWatchId !== null) await toggleLiveGps();
-    else{
-      isNavigating = false;
-      setTachoMode('rest');
-      updateStartButtonUI();
-      if(routeCoords[0]) updateNavMarker(routeCoords[0], 0);
-    }
+    setNavigationUI(false);
+    setTachoMode('rest');
+    if(routeCoords[0]) updateNavMarker(routeCoords[0], 0);
     showToast('Navegação parada.');
     return;
   }
   if(routeCoords.length < 2){ showToast('Escolha um destino e uma rota primeiro!'); return; }
   if(simInterval){ clearInterval(simInterval); simInterval=null; document.getElementById('btn-sim').innerText='▶️'; }
-  if(liveGpsWatchId === null) await toggleLiveGps();
-  else { isNavigating = true; updateStartButtonUI(); }
+  setNavigationUI(true);
+  setTachoMode('drive');
   const startPt = userCurrentCoords || routeCoords[0];
   const brg = routeCoords.length>1 ? calcBearing(routeCoords[0], routeCoords[1]) : 0;
   updateNavMarker(startPt, brg);
-  if(lMap) lMap.setView([startPt[1], startPt[0]], 16);
+  if(lMap) lMap.setView([startPt[1], startPt[0]], 17);
+  const opt = routeOptions[selectedRouteIdx];
+  speak('Navegação iniciada. ' + (opt?.firstStep || 'Siga pela rota azul.'), 'route');
+  if(liveGpsWatchId === null) await startWatchGpsOnly();
 }
 
-async function toggleLiveGps(){
+async function startWatchGpsOnly(){
   const btn = document.getElementById('btn-live-gps');
   const geo = window.Capacitor?.Plugins?.Geolocation;
-  if(liveGpsWatchId !== null){
-    if(geo) await geo.clearWatch({id:liveGpsWatchId}); else navigator.geolocation.clearWatch(liveGpsWatchId);
-    liveGpsWatchId = null; isNavigating = false;
-    btn.classList.remove('active-gps'); setTachoMode('rest'); updateStartButtonUI();
-    if(userCurrentCoords) updateNavMarker(userCurrentCoords, 0);
-    return;
-  }
-  btn.classList.add('active-gps'); isNavigating = true; setTachoMode('drive'); updateStartButtonUI();
-  speak('Navegação iniciada. Siga pela rota azul.','route');
   const onUpdate = (pos)=>{
     if(!pos) return;
     const c = [pos.coords.longitude, pos.coords.latitude];
@@ -376,14 +374,38 @@ async function toggleLiveGps(){
     if(lMap) lMap.panTo([c[1], c[0]]);
     if(pos.coords.speed !== null && pos.coords.speed >= 0) updateSpeedHud(pos.coords.speed*3.6);
   };
-  if(geo){ await geo.requestPermissions(); liveGpsWatchId = await geo.watchPosition({enableHighAccuracy:true},onUpdate); }
-  else if('geolocation' in navigator){ liveGpsWatchId = navigator.geolocation.watchPosition(onUpdate, ()=>showToast('GPS bloqueado.')); }
+  try{
+    if(geo){
+      await geo.requestPermissions();
+      liveGpsWatchId = await geo.watchPosition({enableHighAccuracy:true}, onUpdate);
+      btn.classList.add('active-gps');
+    }else if('geolocation' in navigator){
+      liveGpsWatchId = navigator.geolocation.watchPosition(onUpdate, ()=>showToast('GPS bloqueado neste navegador.'));
+      btn.classList.add('active-gps');
+    }
+  }catch(e){}
+}
+
+async function toggleLiveGps(){
+  const btn = document.getElementById('btn-live-gps');
+  const geo = window.Capacitor?.Plugins?.Geolocation;
+  if(liveGpsWatchId !== null){
+    if(geo) await geo.clearWatch({id:liveGpsWatchId}); else navigator.geolocation.clearWatch(liveGpsWatchId);
+    liveGpsWatchId = null;
+    btn.classList.remove('active-gps');
+    setNavigationUI(false); setTachoMode('rest');
+    if(userCurrentCoords) updateNavMarker(userCurrentCoords, 0);
+    return;
+  }
+  setNavigationUI(true); setTachoMode('drive');
+  speak('Seguimento GPS ao vivo ativado.','route');
+  await startWatchGpsOnly();
 }
 
 function centerOnUserOrTruck(){
   const target = userCurrentCoords || (lNavMarker ? [lNavMarker.getLatLng().lng, lNavMarker.getLatLng().lat] : null);
   if(!target){ showToast('Toque primeiro em 📍 para localizar.'); return; }
-  if(lMap) lMap.setView([target[1], target[0]], 15);
+  if(lMap) lMap.setView([target[1], target[0]], 16);
 }
 
 function swapOriginDest(){
@@ -408,6 +430,15 @@ async function geocode(query){
   return null;
 }
 
+function extractFirstStep(route){
+  try{
+    const steps = route.legs?.[0]?.steps;
+    if(!steps || steps.length===0) return 'Siga pela rota azul';
+    const st = steps.find(s=>s.name) || steps[0];
+    return st.name ? `Siga por ${st.name}` : 'Siga pela rota azul';
+  }catch(e){ return 'Siga pela rota azul'; }
+}
+
 async function calculateTruckRoute(){
   const origTxt = document.getElementById('origin-input').value.trim();
   const destTxt = document.getElementById('dest-input').value.trim();
@@ -421,22 +452,4 @@ async function calculateTruckRoute(){
   if(!p2){ showToast('Destino não encontrado. Tente incluir cidade/país.'); return; }
 
   routeOptions = [];
-  const uAlt = `https://router.project-osrm.org/route/v1/driving/${p1[0]},${p1[1]};${p2[0]},${p2[1]}?overview=full&geometries=geojson&alternatives=3&steps=true`;
-  const uNoHw = `https://router.project-osrm.org/route/v1/driving/${p1[0]},${p1[1]};${p2[0]},${p2[1]}?overview=full&geometries=geojson&exclude=motorway&steps=true`;
-  const [rAlt, rNo] = await Promise.allSettled([fetch(uAlt).then(r=>r.json()), fetch(uNoHw).then(r=>r.json())]);
-
-  if(rAlt.status==='fulfilled' && rAlt.value.routes){
-    rAlt.value.routes.forEach((r,i)=>routeOptions.push({
-      label: i===0 ? '⚡ Mais Rápida' : `🔀 Alternativa ${i+1}`,
-      distanceKm: Math.round(r.distance/1000),
-      coords: r.geometry.coordinates,
-      isNoToll:false
-    }));
-  }
-  if(rNo.status==='fulfilled' && rNo.value.routes?.[0]){
-    const r = rNo.value.routes[0], km = Math.round(r.distance/1000);
-    if(!routeOptions.some(o=>Math.abs(o.distanceKm-km)<=2 && o.coords.length===r.geometry.coordinates.length)){
-      routeOptions.push({label:'💶 Sem Autoestrada', distanceKm:km, coords:r.geometry.coordinates, isNoToll:true});
-    }
-  }
-  if(routeOptions.
+  con
