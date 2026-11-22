@@ -30,18 +30,7 @@ jobs:
           npm install
           npx cap add android
 
-          node -e '
-            const fs = require("fs");
-            const p = "android/app/src/main/AndroidManifest.xml";
-            let s = fs.readFileSync(p, "utf8");
-            const perms = `
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>`;
-            s = s.replace("<application", perms + "\n    <application");
-            fs.writeFileSync(p, s);
-          '
+          node -e 'const fs=require("fs");const p="android/app/src/main/AndroidManifest.xml";let s=fs.readFileSync(p,"utf8");const perms="<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />\n    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />\n    <queries><intent><action android:name=\"android.intent.action.TTS_SERVICE\" /></intent></queries>\n    ";s=s.replace("<application",perms+"<application");fs.writeFileSync(p,s);'
 
           cat << 'EOF' > /tmp/bg.svg
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
