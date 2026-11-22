@@ -21,28 +21,52 @@ function showToast(msg){
   if(!t) return;
   t.innerText = msg; t.classList.add('show');
   clearTimeout(window._toastTimer);
-  window._toastTimer = setTimeout(()=>t.classList.remove('show'), 3600);
+  window._toastTimer = setTimeout(()=>t.classList.remove('show'), 4200);
 }
 function resizeActiveMap(){ try{ if(lMap) setTimeout(()=>lMap.invalidateSize(), 150); }catch(e){} }
 
-async function initAutoUpdater(){
+async function initAutoUpdater(manual=false){
   try{
     const updater = window.Capacitor?.Plugins?.CapacitorUpdater;
-    if(!updater) return;
+    if(!updater){
+      if(manual) showToast('Atualizador só funciona dentro do APK instalado.');
+      return;
+    }
     try{ await updater.notifyAppReady(); }catch(e){}
-    const res = await fetch('https://maikonmkn07.github.io/Mk-Truck/version.json?t=' + Date.now());
-    if(!res.ok) return;
-    const remote = await res.json();
+    if(manual) showToast('A procurar atualizações...');
+    const urls = [
+      'https://maikonmkn07.github.io/Mk-Truck/version.json?t=' + Date.now(),
+      'https://maikonmkn07.github.io/mk-truck/version.json?t=' + Date.now()
+    ];
+    let remote = null;
+    for(const u of urls){
+      try{
+        const r = await fetch(u);
+        if(r.ok){ remote = await r.json(); break; }
+      }catch(e){}
+    }
+    if(!remote || !remote.version){
+      if(manual) showToast('⚠️ Servidor OTA não encontrado. Confira se "Publicar Atualizacao OTA" está verde no GitHub.');
+      return;
+    }
     const cur = await updater.current();
     const currentVer = cur?.bundle?.version || '0.0.0';
     const lastApplied = localStorage.getItem('mk_ota_ver') || '0.0.0';
-    if(remote.version && remote.version !== currentVer && remote.version !== lastApplied){
+    if(remote.version !== currentVer && remote.version !== lastApplied){
+      showToast('⬇️ Nova atualização v' + remote.version + '! A instalar...');
       const bundle = await updater.download({ url: remote.url, version: remote.version });
       localStorage.setItem('mk_ota_ver', remote.version);
-      await updater.next({ id: bundle.id });
-      showToast('✅ Atualização v' + remote.version + ' pronta (aplica ao reabrir).');
+      showToast('✅ Atualizado para v' + remote.version + '! A aplicar...');
+      setTimeout(async()=>{
+        try{ await updater.set(bundle); }
+        catch(e){ showToast('Erro ao aplicar: ' + (e?.message||e)); }
+      }, 900);
+    }else if(manual){
+      showToast('✅ Já está na versão mais recente (v' + remote.version + ').');
     }
-  }catch(e){}
+  }catch(e){
+    if(manual) showToast('⚠️ Erro OTA: ' + (e?.message || e));
+  }
 }
 
 function loadScript(src){
@@ -75,8 +99,9 @@ document.addEventListener('DOMContentLoaded', () => {
   try{ loadSettings(); }catch(e){}
   try{ loadProfile(); }catch(e){}
   try{ renderPoiList(); }catch(e){}
+  try{ window.Capacitor?.Plugins?.CapacitorUpdater?.notifyAppReady(); }catch(e){}
   setInterval(tickTacho, 1000);
-  initAutoUpdater();
+  setTimeout(()=>initAutoUpdater(false), 3500);
   initMap2D();
 });
 
@@ -357,258 +382,4 @@ async function startWatchGpsOnly(){
   const btn = document.getElementById('btn-live-gps'), geo = window.Capacitor?.Plugins?.Geolocation;
   const onUpdate = (pos)=>{
     if(!pos) return;
-    const c = [pos.coords.longitude, pos.coords.latitude], brg = pos.coords.heading || 0;
-    userCurrentCoords = c; updateNavMarker(c, brg);
-    if(lMap) lMap.panTo([c[1], c[0]]);
-    if(pos.coords.speed !== null && pos.coords.speed >= 0) updateSpeedHud(pos.coords.speed*3.6);
-  };
-  try{
-    if(geo){ await geo.requestPermissions(); liveGpsWatchId = await geo.watchPosition({enableHighAccuracy:true, maximumAge:0, minimumUpdateInterval:1000}, onUpdate); btn.classList.add('active-gps'); }
-    else if('geolocation' in navigator){ liveGpsWatchId = navigator.geolocation.watchPosition(onUpdate, ()=>showToast('GPS bloqueado.'), {enableHighAccuracy:true, maximumAge:0}); btn.classList.add('active-gps'); }
-  }catch(e){}
-}
-
-async function toggleLiveGps(){
-  const btn = document.getElementById('btn-live-gps'), geo = window.Capacitor?.Plugins?.Geolocation;
-  if(liveGpsWatchId !== null){
-    if(geo) await geo.clearWatch({id:liveGpsWatchId}); else navigator.geolocation.clearWatch(liveGpsWatchId);
-    liveGpsWatchId = null; btn.classList.remove('active-gps');
-    setNavigationUI(false); setTachoMode('rest');
-    if(userCurrentCoords) updateNavMarker(userCurrentCoords, 0);
-    return;
-  }
-  setNavigationUI(true); setTachoMode('drive');
-  speak('Seguimento GPS ao vivo ativado.','route');
-  await startWatchGpsOnly();
-}
-
-async function centerOnUserOrTruck(){
-  showToast('A centrar na posição atual...');
-  const fresh = await getNativeLocation(false);
-  if(fresh){
-    userCurrentCoords = fresh;
-    updateNavMarker(fresh, 0);
-    if(lMap) lMap.setView([fresh[1], fresh[0]], 16);
-    return;
-  }
-  const target = userCurrentCoords || (lNavMarker ? [lNavMarker.getLatLng().lng, lNavMarker.getLatLng().lat] : null);
-  if(target && lMap) lMap.setView([target[1], target[0]], 16);
-}
-function swapOriginDest(){ const o=document.getElementById('origin-input'), d=document.getElementById('dest-input'); const t=o.value; o.value=d.value; d.value=t; customOriginCoords=null; }
-function switchTab(tab){
-  document.querySelectorAll('.tab-view').forEach(v=>v.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('view-'+tab).classList.add('active');
-  document.getElementById('nav-'+tab).classList.add('active');
-  if(tab==='map') resizeActiveMap();
-}
-
-async function geocode(query){
-  try{
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
-    const d = await r.json();
-    if(d && d.length>0) return [parseFloat(d[0].lon), parseFloat(d[0].lat)];
-  }catch(e){}
-  return null;
-}
-function extractFirstStep(route){
-  try{
-    const steps = route.legs?.[0]?.steps;
-    if(!steps || steps.length===0) return 'Siga pela rota azul';
-    const st = steps.find(s=>s.name) || steps[0];
-    return st.name ? `Siga por ${st.name}` : 'Siga pela rota azul';
-  }catch(e){ return 'Siga pela rota azul'; }
-}
-
-async function calculateTruckRoute(){
-  const origTxt = document.getElementById('origin-input').value.trim(), destTxt = document.getElementById('dest-input').value.trim();
-  if(!destTxt){ showToast('Escreva o destino primeiro!'); return; }
-  showToast('A calcular rotas HGV...');
-  let p1 = null;
-  if(origTxt.startsWith('📍')){
-    p1 = await getNativeLocation(true) || customOriginCoords || userCurrentCoords;
-  }else if(origTxt){
-    p1 = await geocode(origTxt);
-  }else{
-    p1 = await getNativeLocation(true) || userCurrentCoords;
-  }
-  if(!p1){ showToast('Defina a origem ou toque em 📍.'); return; }
-  const p2 = await geocode(destTxt);
-  if(!p2){ showToast('Destino não encontrado. Tente incluir cidade/país.'); return; }
-
-  routeOptions = [];
-  const uAlt = `https://router.project-osrm.org/route/v1/driving/${p1[0]},${p1[1]};${p2[0]},${p2[1]}?overview=full&geometries=geojson&alternatives=3&steps=true`;
-  const uNoHw = `https://router.project-osrm.org/route/v1/driving/${p1[0]},${p1[1]};${p2[0]},${p2[1]}?overview=full&geometries=geojson&exclude=motorway&steps=true`;
-  const [rAlt, rNo] = await Promise.allSettled([fetch(uAlt).then(r=>r.json()), fetch(uNoHw).then(r=>r.json())]);
-
-  if(rAlt.status==='fulfilled' && rAlt.value.routes){
-    rAlt.value.routes.forEach((r,i)=>routeOptions.push({ label: i===0?'⚡ Mais Rápida':`🔀 Alternativa ${i+1}`, distanceKm:Math.round(r.distance/1000), coords:r.geometry.coordinates, firstStep:extractFirstStep(r), isNoToll:false }));
-  }
-  if(rNo.status==='fulfilled' && rNo.value.routes?.[0]){
-    const r = rNo.value.routes[0], km = Math.round(r.distance/1000);
-    if(!routeOptions.some(o=>Math.abs(o.distanceKm-km)<=2 && o.coords.length===r.geometry.coordinates.length)){
-      routeOptions.push({label:'💶 Sem Autoestrada', distanceKm:km, coords:r.geometry.coordinates, firstStep:extractFirstStep(r), isNoToll:true});
-    }
-  }
-  if(routeOptions.length===0) routeOptions.push({label:'⚡ Rota Direta', distanceKm:50, coords:[p1,p2], firstStep:'Siga pela rota azul', isNoToll:false});
-
-  let idx = 0;
-  if(settings.avoidTolls){ const n=routeOptions.findIndex(o=>o.isNoToll); if(n!==-1) idx=n; }
-  setNavigationUI(false);
-  selectRoute(idx, origTxt || 'Origem', destTxt);
-  speak(`Encontradas ${routeOptions.length} rotas para ${destTxt}. Escolha uma e toque em Iniciar.`, 'route');
-}
-
-function computeRouteStats(opt){
-  const driveH = opt.distanceKm / (opt.isNoToll ? 58 : 72);
-  const totH = driveH + Math.floor(driveH/4.5)*0.75;
-  const hh = Math.floor(totH), mm = Math.round((totH-hh)*60);
-  const cons = parseFloat(document.getElementById('veh-fuel').value) || 31;
-  const toll = opt.isNoToll ? 0 : (document.getElementById('veh-euro').value.includes('ev') ? 0.06 : 0.19);
-  const cost = Math.round((opt.distanceKm/100)*cons*1.58 + opt.distanceKm*toll);
-  const distDisp = settings.units==='mph' ? `${Math.round(opt.distanceKm*0.621371)} mi` : `${opt.distanceKm} km`;
-  return {hh, mm, cost, distDisp};
-}
-
-function selectRoute(idx, origTxt, destTxt){
-  selectedRouteIdx = idx;
-  const opt = routeOptions[idx];
-  routeCoords = opt.coords;
-  if(lMap && typeof L !== 'undefined'){
-    lRouteLayers.forEach(l=>lMap.removeLayer(l)); lRouteLayers = [];
-    if(lEndMarker) lMap.removeLayer(lEndMarker);
-    routeOptions.forEach((o,i)=>{
-      if(i===idx) return;
-      const line = L.polyline(o.coords.map(c=>[c[1],c[0]]), {color:'#64748b', weight:4, opacity:0.75, dashArray:'7,7'}).addTo(lMap);
-      line.on('click', ()=>selectRoute(i));
-      lRouteLayers.push(line);
-    });
-    const activeLine = L.polyline(routeCoords.map(c=>[c[1],c[0]]), {color:'#38bdf8', weight:6, opacity:0.95}).addTo(lMap);
-    lRouteLayers.push(activeLine);
-    const end = routeCoords[routeCoords.length-1];
-    lEndMarker = L.circleMarker([end[1], end[0]], {radius:8, color:'#ffffff', weight:2, fillColor:'#ef4444', fillOpacity:1}).addTo(lMap);
-    lMap.fitBounds(activeLine.getBounds(), {padding:[130, 130]});
-  }
-  updateNavMarker(routeCoords[0], routeCoords.length>1 ? calcBearing(routeCoords[0], routeCoords[1]) : 0);
-  simIndex = 0;
-
-  const st = computeRouteStats(opt);
-  const oLbl = (origTxt || document.getElementById('origin-input').value || 'Atual').replace('📍 ','').split(',')[0];
-  const dLbl = (destTxt || document.getElementById('dest-input').value || 'Destino').split(',')[0];
-  document.getElementById('route-summary').classList.add('visible');
-  document.getElementById('summary-title').innerText = `${opt.label} (${oLbl} → ${dLbl})`;
-  document.getElementById('summary-details').innerText = `${st.distDisp} • ${st.hh}h ${st.mm}m • Est.: €${st.cost}`;
-
-  const chooser = document.getElementById('routes-chooser');
-  chooser.innerHTML = ''; chooser.classList.add('visible');
-  routeOptions.forEach((o,i)=>{
-    const s = computeRouteStats(o), b = document.createElement('button');
-    b.className = 'route-option'+(i===idx?' selected':'');
-    b.innerHTML = `<strong>${o.label}</strong>${s.distDisp} • ${s.hh}h${String(s.mm).padStart(2,'0')} • €${s.cost}`;
-    b.onclick = ()=>{ selectRoute(i); speak(`${o.label.replace(/[^\w\sÀ-ÿ]/g,'')} selecionada. Toque em Iniciar.`,'route'); };
-    chooser.appendChild(b);
-  });
-}
-
-function calcBearing(c1, c2){
-  const rad=d=>d*Math.PI/180, lat1=rad(c1[1]), lat2=rad(c2[1]), dLon=rad(c2[0]-c1[0]);
-  return (Math.atan2(Math.sin(dLon)*Math.cos(lat2), Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon))*180/Math.PI+360)%360;
-}
-
-function toggleSimulation(){
-  if(simInterval){
-    clearInterval(simInterval); simInterval=null;
-    document.getElementById('btn-sim').innerText='▶️'; updateSpeedHud(0);
-    setNavigationUI(false); setTachoMode('rest');
-    if(routeCoords[simIndex]) updateNavMarker(routeCoords[simIndex], 0);
-    return;
-  }
-  if(routeCoords.length<2){ showToast('Escreva um destino e toque em Ver Rotas primeiro!'); return; }
-  setNavigationUI(true);
-  document.getElementById('btn-sim').innerText='⏸️'; setTachoMode('drive');
-  speak('Simulação iniciada. Siga pela rota azul.','route');
-  simInterval = setInterval(()=>{
-    const step = Math.max(1, Math.floor(routeCoords.length/90)), prev = routeCoords[simIndex];
-    simIndex = Math.min(simIndex+step, routeCoords.length-1);
-    const pos = routeCoords[simIndex];
-    updateNavMarker(pos, calcBearing(prev, pos));
-    if(lMap) lMap.panTo([pos[1], pos[0]]);
-    updateSpeedHud(76 + Math.floor(Math.random()*9));
-    if(simIndex === Math.floor(routeCoords.length*0.35)) speak('Atenção: ponte à frente com altura de 4 metros e 20.','hazard');
-    if(simIndex >= routeCoords.length-1){ toggleSimulation(); speak('Chegou ao seu destino.','route'); }
-  }, 600);
-}
-
-function openReportModal(){ document.getElementById('report-modal').classList.add('open'); }
-function closeReportModal(){ document.getElementById('report-modal').classList.remove('open'); }
-function addCommunityAlert(label){
-  const pos = userCurrentCoords || (lNavMarker ? [lNavMarker.getLatLng().lng, lNavMarker.getLatLng().lat] : [-8.4, 41.1]);
-  if(lMap && typeof L !== 'undefined') L.marker([pos[1], pos[0]]).bindPopup(`<b>${label}</b>`).addTo(lMap);
-  closeReportModal(); showToast('Alerta partilhado!'); speak('Alerta registado para outros motoristas.','hazard');
-}
-
-function setTachoMode(m){
-  tacho.mode=m; document.querySelectorAll('.mode-btn').forEach(b=>b.className='mode-btn');
-  if(m==='drive') document.getElementById('mode-drive').classList.add('active-drive');
-  if(m==='rest') document.getElementById('mode-rest').classList.add('active-rest');
-  if(m==='work') document.getElementById('mode-work').classList.add('active-work');
-}
-function cycleSimSpeed(){ const s=[1,60,600], next=s[(s.indexOf(tacho.speedMult)+1)%s.length]; tacho.speedMult=next; document.getElementById('btn-sim-speed').innerText=`Velocidade: ${next}x`; }
-function resetTacho(){ tacho.contUsed=0; tacho.dailyUsed=0; tacho.breakAcc=0; updateTachoUI(); }
-function tickTacho(){
-  const dt=tacho.speedMult;
-  if(tacho.mode==='drive'){
-    tacho.contUsed=Math.min(16200,tacho.contUsed+dt); tacho.dailyUsed=Math.min(32400,tacho.dailyUsed+dt);
-    if(tacho.contUsed>=14400 && tacho.contUsed-dt<14400) speak('Atenção: restam 30 minutos de condução contínua.','hazard');
-  }else if(tacho.mode==='rest'){ tacho.breakAcc=Math.min(2700,tacho.breakAcc+dt); if(tacho.breakAcc>=2700) tacho.contUsed=0; }
-  updateTachoUI();
-}
-function formatHMS(sec){ sec=Math.max(0,Math.floor(sec)); return `${String(Math.floor(sec/3600)).padStart(2,'0')}h ${String(Math.floor((sec%3600)/60)).padStart(2,'0')}m`; }
-function updateTachoUI(){
-  const cl=16200-tacho.contUsed, dl=32400-tacho.dailyUsed, cp=(cl/16200)*100;
-  document.getElementById('mini-drive-left').innerText=formatHMS(cl); document.getElementById('mini-daily-left').innerText=formatHMS(dl);
-  document.getElementById('mini-drive-left').style.color=cp<20?'var(--danger)':'var(--success)';
-  document.getElementById('lbl-cont').innerText=formatHMS(cl)+' restantes';
-  document.getElementById('bar-cont').style.width=cp+'%';
-  document.getElementById('bar-cont').style.background=cp<20?'var(--danger)':(cp<40?'var(--warn)':'var(--success)');
-  document.getElementById('lbl-daily').innerText=formatHMS(dl)+' restantes';
-  document.getElementById('bar-daily').style.width=((dl/32400)*100)+'%';
-  document.getElementById('lbl-break').innerText=`${Math.floor(tacho.breakAcc/60)} / 45 min`;
-  document.getElementById('bar-break').style.width=((tacho.breakAcc/2700)*100)+'%';
-}
-function renderPoiList(){
-  const filter=document.getElementById('fuel-card-filter').value, remKm=Math.round(((16200-tacho.contUsed)/3600)*75);
-  const list=document.getElementById('poi-list'); list.innerHTML='';
-  currentPois.filter(p=>filter==='all'||p.cards.includes(filter)).forEach(p=>{
-    const badge=p.freeSpots===0?`<span class="tag tag-bad">Lotado</span>`:(p.km<=remKm?`<span class="tag tag-ok">${p.freeSpots} vagas • Alcançável</span>`:`<span class="tag tag-warn">Excede 4h30</span>`);
-    list.innerHTML+=`<div class="poi-item"><div><strong>${p.name}</strong><br><span style="color:var(--muted);">Km ${p.km} • Diesel €${p.diesel.toFixed(2)}/L • ${p.cards.join(', ')}</span></div><div>${badge}</div></div>`;
-  });
-}
-function saveProfile(){
-  const p={height:document.getElementById('veh-height').value,weight:document.getElementById('veh-weight').value,adr:document.getElementById('veh-adr').value};
-  localStorage.setItem('mk_truck_profile',JSON.stringify(p));
-  document.getElementById('lbl-h').innerText=p.height+'m'; document.getElementById('lbl-w').innerText=p.weight+'t';
-}
-function loadProfile(){
-  const raw=localStorage.getItem('mk_truck_profile'); if(!raw) return;
-  const p=JSON.parse(raw);
-  if(p.height) document.getElementById('veh-height').value=p.height;
-  if(p.weight) document.getElementById('veh-weight').value=p.weight;
-  if(p.adr) document.getElementById('veh-adr').value=p.adr;
-  document.getElementById('lbl-h').innerText=(p.height||'4.0')+'m'; document.getElementById('lbl-w').innerText=(p.weight||'40')+'t';
-}
-function askPreset(q){ document.getElementById('chat-input').value=q; sendChat(); }
-function sendChat(){
-  const inp=document.getElementById('chat-input'), q=inp.value.trim(); if(!q) return;
-  inp.value=''; const box=document.getElementById('chat-messages');
-  box.innerHTML+=`<div class="msg user">${q}</div>`;
-  setTimeout(()=>{ box.innerHTML+=`<div class="msg bot">${getAiAnswer(q.toLowerCase())}</div>`; box.scrollTop=box.scrollHeight; },250);
-}
-function getAiAnswer(q){
-  if(q.includes('10')||q.includes('conduzir')) return '⏱️ <strong>Condução Diária:</strong> Limite padrão de <strong>9h/dia</strong>, até <strong>10h no máximo 2x/semana</strong> (56h/semana, 90h/quinzena).';
-  if(q.includes('45')||q.includes('pausa')) return '☕ <strong>Pausa Dividida:</strong> Os 45 min dividem-se em <strong>15 min primeiro + 30 min depois</strong>.';
-  if(q.includes('semana')||q.includes('alemanha')||q.includes('frança')) return '🚫 <strong>Proibições (>7,5t):</strong> Alemanha (domingos 00h–22h) e França (sábado 22h–domingo 22h).';
-  if(q.includes('adr')||q.includes('túnel')||q.includes('tunel')) return '☢️ <strong>Túneis ADR:</strong> B (mais restrito) até E (proibido à maioria das cargas ADR).';
-  return '🚛 Posso ajudar com <strong>condução (9h/10h)</strong>, <strong>pausa dividida (15+30)</strong>, <strong>fim de semana</strong> ou <strong>ADR</strong>.';
-}
-// FIM_OK
+    const c = [pos.coords.longitude, pos.coords.latitude], brg = pos.coords.head
