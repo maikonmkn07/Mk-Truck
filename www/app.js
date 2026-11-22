@@ -65,7 +65,8 @@ async function initMap2D(){
       userCurrentCoords = pos; customOriginCoords = pos;
       document.getElementById('origin-input').value = '📍 Minha Localização';
       updateNavMarker(pos, 0);
-      lMap.setView([pos[1], pos[0]], 15);
+      lMap.setView([pos[1], pos[0]], 16);
+      reverseFillOrigin(pos);
     }
   }catch(err){ showToast('⚠️ Ligue a internet para carregar o mapa.'); }
 }
@@ -152,17 +153,26 @@ function applySettingsUI(){
   document.getElementById('hud-unit-lbl').innerText = settings.units==='mph' ? 'mph (HGV)' : 'km/h (HGV)';
 }
 
-async function fillSavedAddrWithGps(type){
-  showToast('A obter endereço atual...');
-  const coords = await getNativeLocation(false);
-  if(!coords) return;
-  let txt = `${coords[1].toFixed(5)}, ${coords[0].toFixed(5)}`;
+async function reverseGeocodeLabel(coords){
   try{
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords[1]}&lon=${coords[0]}`);
     const d = await r.json();
-    const road = d.address?.road || '', city = d.address?.city || d.address?.town || d.address?.village || '';
-    if(road || city) txt = [road, city].filter(Boolean).join(', ');
-  }catch(e){}
+    const street = d.address?.road || d.address?.pedestrian || '';
+    const local = d.address?.suburb || d.address?.village || d.address?.hamlet || d.address?.town || d.address?.city || '';
+    return [street, local].filter(Boolean).join(', ');
+  }catch(e){ return ''; }
+}
+async function reverseFillOrigin(coords){
+  const place = await reverseGeocodeLabel(coords);
+  if(place) document.getElementById('origin-input').value = `📍 ${place}`;
+}
+
+async function fillSavedAddrWithGps(type){
+  showToast('A obter endereço atual pelo GPS...');
+  const coords = await getNativeLocation(false);
+  if(!coords) return;
+  const place = await reverseGeocodeLabel(coords);
+  const txt = place || `${coords[1].toFixed(5)}, ${coords[0].toFixed(5)}`;
   document.getElementById(type==='home' ? 'set-home-addr' : 'set-work-addr').value = txt;
   saveSettings();
   showToast((type==='home' ? '🏠 Casa' : '🏢 Trabalho') + ' guardado: ' + txt);
@@ -221,31 +231,50 @@ async function speak(text, category='all', interactive=false){
 async function getNativeLocation(silent=false){
   const geo = window.Capacitor?.Plugins?.Geolocation;
   if(geo){
-    try{ await geo.requestPermissions(); const pos = await geo.getCurrentPosition({enableHighAccuracy:true,timeout:10000}); return [pos.coords.longitude, pos.coords.latitude]; }
-    catch(e){ if(!silent) showToast('Ative o GPS no telemóvel e permita a localização.'); return null; }
+    try{
+      await geo.requestPermissions();
+      if(!silent){
+        return await new Promise((resolve)=>{
+          let best = null, wid = null, done = false;
+          const finish = (c)=>{ if(done) return; done=true; if(wid!==null) geo.clearWatch({id:wid}).catch(()=>{}); resolve(c); };
+          const timer = setTimeout(()=>{
+            if(best) finish(best);
+            else geo.getCurrentPosition({enableHighAccuracy:true, maximumAge:0, timeout:6000})
+              .then(p=>finish([p.coords.longitude, p.coords.latitude]))
+              .catch(()=>{ showToast('Sem sinal GPS atual. Verifique se o GPS está ligado.'); finish(null); });
+          }, 3500);
+          geo.watchPosition({enableHighAccuracy:true, maximumAge:0, timeout:10000, minimumUpdateInterval:400}, (pos, err)=>{
+            if(err){ if(!best){ clearTimeout(timer); showToast('Ative o GPS do telemóvel.'); finish(null); } return; }
+            if(!pos) return;
+            const c = [pos.coords.longitude, pos.coords.latitude];
+            best = c;
+            if(pos.coords.accuracy && pos.coords.accuracy <= 60){ clearTimeout(timer); finish(c); }
+          }).then(id=>{ wid = id; if(done && wid!==null) geo.clearWatch({id:wid}).catch(()=>{}); });
+        });
+      }
+      const pos = await geo.getCurrentPosition({enableHighAccuracy:true, maximumAge:0, timeout:10000});
+      return [pos.coords.longitude, pos.coords.latitude];
+    }catch(e){ if(!silent) showToast('Ative o GPS no telemóvel e permita a localização.'); return null; }
   }
   if('geolocation' in navigator){
-    return new Promise(res=>{ navigator.geolocation.getCurrentPosition(p=>res([p.coords.longitude,p.coords.latitude]), ()=>{ if(!silent) showToast('GPS bloqueado neste navegador.'); res(null); }, {enableHighAccuracy:true,timeout:7000}); });
+    return new Promise(res=>{ navigator.geolocation.getCurrentPosition(p=>res([p.coords.longitude,p.coords.latitude]), ()=>{ if(!silent) showToast('GPS bloqueado neste navegador.'); res(null); }, {enableHighAccuracy:true, maximumAge:0, timeout:7000}); });
   }
   if(!silent) showToast('GPS indisponível.');
   return null;
 }
+
 async function useMyLocationAsOrigin(){
-  showToast('A procurar a sua localização GPS...');
+  showToast('A procurar a sua localização exata...');
   const coords = await getNativeLocation(false);
   if(!coords) return;
   userCurrentCoords = coords; customOriginCoords = coords;
   updateNavMarker(coords, 0);
-  if(lMap) lMap.setView([coords[1], coords[0]], 15);
-  document.getElementById('origin-input').value = '📍 Minha Localização';
-  showToast('Localização atual carregada!');
+  if(lMap) lMap.setView([coords[1], coords[0]], 16);
+  document.getElementById('origin-input').value = `📍 ${coords[1].toFixed(4)}, ${coords[0].toFixed(4)}`;
+  const place = await reverseGeocodeLabel(coords);
+  if(place) document.getElementById('origin-input').value = `📍 ${place}`;
+  showToast('📍 Localização atualizada!');
   speak('Localização atual definida como origem.','route');
-  try{
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords[1]}&lon=${coords[0]}`);
-    const d = await r.json();
-    const place = d.address?.city || d.address?.town || d.address?.village || d.address?.road;
-    if(place) document.getElementById('origin-input').value = `📍 ${place}`;
-  }catch(e){}
 }
 
 function updateSpeedHud(kmh){
@@ -303,8 +332,8 @@ async function startWatchGpsOnly(){
     if(pos.coords.speed !== null && pos.coords.speed >= 0) updateSpeedHud(pos.coords.speed*3.6);
   };
   try{
-    if(geo){ await geo.requestPermissions(); liveGpsWatchId = await geo.watchPosition({enableHighAccuracy:true}, onUpdate); btn.classList.add('active-gps'); }
-    else if('geolocation' in navigator){ liveGpsWatchId = navigator.geolocation.watchPosition(onUpdate, ()=>showToast('GPS bloqueado.')); btn.classList.add('active-gps'); }
+    if(geo){ await geo.requestPermissions(); liveGpsWatchId = await geo.watchPosition({enableHighAccuracy:true, maximumAge:0, minimumUpdateInterval:1000}, onUpdate); btn.classList.add('active-gps'); }
+    else if('geolocation' in navigator){ liveGpsWatchId = navigator.geolocation.watchPosition(onUpdate, ()=>showToast('GPS bloqueado.'), {enableHighAccuracy:true, maximumAge:0}); btn.classList.add('active-gps'); }
   }catch(e){}
 }
 
@@ -322,10 +351,17 @@ async function toggleLiveGps(){
   await startWatchGpsOnly();
 }
 
-function centerOnUserOrTruck(){
+async function centerOnUserOrTruck(){
+  showToast('A centrar na posição atual...');
+  const fresh = await getNativeLocation(false);
+  if(fresh){
+    userCurrentCoords = fresh;
+    updateNavMarker(fresh, 0);
+    if(lMap) lMap.setView([fresh[1], fresh[0]], 16);
+    return;
+  }
   const target = userCurrentCoords || (lNavMarker ? [lNavMarker.getLatLng().lng, lNavMarker.getLatLng().lat] : null);
-  if(!target){ showToast('Toque primeiro em 📍 para localizar.'); return; }
-  if(lMap) lMap.setView([target[1], target[0]], 16);
+  if(target && lMap) lMap.setView([target[1], target[0]], 16);
 }
 function swapOriginDest(){ const o=document.getElementById('origin-input'), d=document.getElementById('dest-input'); const t=o.value; o.value=d.value; d.value=t; customOriginCoords=null; }
 function switchTab(tab){
@@ -357,9 +393,15 @@ async function calculateTruckRoute(){
   const origTxt = document.getElementById('origin-input').value.trim(), destTxt = document.getElementById('dest-input').value.trim();
   if(!destTxt){ showToast('Escreva o destino primeiro!'); return; }
   showToast('A calcular rotas HGV...');
-  let p1 = customOriginCoords;
-  if(!p1) p1 = origTxt ? await geocode(origTxt) : userCurrentCoords;
-  if(!p1) p1 = await getNativeLocation(true) || [-8.4265, 41.5454];
+  let p1 = null;
+  if(origTxt.startsWith('📍')){
+    p1 = await getNativeLocation(true) || customOriginCoords || userCurrentCoords;
+  }else if(origTxt){
+    p1 = await geocode(origTxt);
+  }else{
+    p1 = await getNativeLocation(true) || userCurrentCoords;
+  }
+  if(!p1){ showToast('Defina a origem ou toque em 📍.'); return; }
   const p2 = await geocode(destTxt);
   if(!p2){ showToast('Destino não encontrado. Tente incluir cidade/país.'); return; }
 
