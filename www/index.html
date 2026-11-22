@@ -68,7 +68,6 @@
     </div>
 
     <div class="fab-stack">
-      <button class="fab active-3d" id="btn-3d" onclick="toggle3D()">3D</button>
       <button class="fab alert-fab" onclick="openReportModal()">⚠️</button>
       <button class="fab" onclick="toggleLiveGps()" id="btn-live-gps">🛰️</button>
       <button class="fab" onclick="toggleSimulation()" id="btn-sim">▶️</button>
@@ -198,11 +197,7 @@
     </div>
 
     <div class="settings-section">
-      <h4>🗺️ Gráfico & Tema do Mapa</h4>
-      <div class="choice-2" style="margin-bottom:8px;">
-        <div class="theme-card active" id="view-3d" onclick="set3DMode(true)">🏙️ Gráfico 3D<br><small style="font-weight:400;color:var(--muted)">Igual Google Maps</small></div>
-        <div class="theme-card" id="view-2d" onclick="set3DMode(false)">🗺️ Gráfico 2D<br><small style="font-weight:400;color:var(--muted)">Mapa Plano</small></div>
-      </div>
+      <h4>🎨 Tema do Mapa (2D)</h4>
       <div class="choice-2">
         <div class="theme-card" id="theme-light" onclick="setTheme('light')">☀️ Dia<br><small style="font-weight:400;color:var(--muted)">Claro</small></div>
         <div class="theme-card active" id="theme-night" onclick="setTheme('night')">🌃 Noite<br><small style="font-weight:400;color:var(--muted)">Escuro</small></div>
@@ -271,5 +266,14 @@
 </div>
 
 <script src="app.js"></script>
+<script>
+  if (typeof openSettings !== 'function') {
+    var t = document.getElementById('toast-msg');
+    if (t) {
+      t.innerText = '⚠️ Erro ao carregar www/app.js! Confira se app.js está completo dentro da pasta www/.';
+      t.style.display = 'block';
+    }
+  }
+</script>
 </body>
 </html>
