@@ -6,6 +6,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'www/**'
+      - 'scripts/build-ota.js'
       - '.github/workflows/ota-update.yml'
 
 permissions:
@@ -27,14 +28,14 @@ jobs:
       - id: pages
         uses: actions/configure-pages@v5
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Empacotar atualizacao OTA
         env:
           RUN_NUM: ${{ github.run_number }}
-          BASE_URL: ${{ steps.pages.outputs.base_url }}
-        run: |
-          mkdir -p ota-site
-          (cd www && zip -r ../ota-site/bundle.zip .)
-          node -e 'require("fs").writeFileSync("ota-site/version.json", JSON.stringify({ version: "1.0." + process.env.RUN_NUM, url: process.env.BASE_URL + "/bundle.zip" }))'
+        run: node scripts/build-ota.js ota-site
 
       - uses: actions/upload-pages-artifact@v4
         with:
